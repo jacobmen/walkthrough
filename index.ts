@@ -11,6 +11,7 @@ export default function walkthrough(pi: ExtensionAPI) {
         ctx.ui.notify("walkthrough requires the interactive TUI", "error");
         return;
       }
+
       let files;
       try {
         files = await captureDiff(pi.exec, ctx.cwd);
@@ -21,15 +22,18 @@ export default function walkthrough(pi: ExtensionAPI) {
         );
         return;
       }
+
       if (files.length === 0) {
         ctx.ui.notify("No unstaged changes", "info");
         return;
       }
+
       await ctx.ui.custom(
         (tui, theme, _keybindings, done) =>
           new WalkthroughViewer(files, tui, theme, done),
         { overlay: true },
       );
+
       const prompt = buildPrompt(files);
       if (prompt) {
         ctx.ui.setEditorText(prompt);

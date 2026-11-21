@@ -104,6 +104,7 @@ export async function captureDiff(
       } catch {
         continue; // unreadable — skip
       }
+
       const lines = content.split("\n");
       if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
       if (lines.length === 0) continue; // empty new file — nothing to review

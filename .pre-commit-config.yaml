@@ -1,0 +1,21 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: bun fmt --staged
+        entry: bun fmt --staged
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: typecheck
+        name: bunx tsc --noEmit
+        entry: bunx tsc --noEmit
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: test
+        name: bun test
+        entry: bun test
+        language: system
+        pass_filenames: false
+        always_run: true

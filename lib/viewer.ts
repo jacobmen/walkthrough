@@ -9,13 +9,18 @@ import {
   type TUI,
   visibleWidth,
 } from "@oh-my-pi/pi-tui";
-import { type DiffFile, type DiffLine, diffLineNumber } from "./diff";
-
-type Row =
-  | { kind: "fileHeader"; fileIndex: number }
-  | { kind: "placeholder"; fileIndex: number }
-  | { kind: "hunkHeader"; fileIndex: number; header: string }
-  | { kind: "diffLine"; fileIndex: number; line: DiffLine };
+import { type DiffFile, diffLineNumber } from "./diff";
+import {
+  applyComment,
+  buildRows,
+  clearComments,
+  countComments,
+  gutterWidths,
+  type Row,
+  scrollIntoView,
+  jumpFile,
+  moveCursor,
+} from "./review-model";
 
 /**
  * Full-screen overlay reviewing the unstaged diff: j/k to move, `a` to annotate
@@ -27,8 +32,8 @@ export class WalkthroughViewer implements Component {
   readonly #tui: TUI;
   readonly #theme: Theme;
   readonly #done: (result: null) => void;
-  readonly #rows: Row[] = [];
-  readonly #cursorRows: number[] = [];
+  readonly #rows: Row[];
+  readonly #cursorRows: number[];
   #cursor = 0;
   #scrollOffset = 0;
   #annotating: { input: Input } | null = null;
@@ -46,27 +51,9 @@ export class WalkthroughViewer implements Component {
     this.#theme = theme;
     this.#done = done;
 
-    for (let fi = 0; fi < files.length; fi++) {
-      const file = files[fi]!;
-      this.#rows.push({ kind: "fileHeader", fileIndex: fi });
-      if (file.kind === "binary") {
-        this.#rows.push({ kind: "placeholder", fileIndex: fi });
-        continue;
-      }
-      for (const hunk of file.hunks) {
-        this.#rows.push({
-          kind: "hunkHeader",
-          fileIndex: fi,
-          header: hunk.header,
-        });
-        for (const line of hunk.lines) {
-          this.#rows.push({ kind: "diffLine", fileIndex: fi, line });
-        }
-      }
-    }
-    for (let i = 0; i < this.#rows.length; i++) {
-      if (this.#rows[i]!.kind === "diffLine") this.#cursorRows.push(i);
-    }
+    const { rows, cursorRows } = buildRows(files);
+    this.#rows = rows;
+    this.#cursorRows = cursorRows;
   }
 
   handleInput(data: string): void {
@@ -77,14 +64,7 @@ export class WalkthroughViewer implements Component {
     }
     if (this.#confirmQuit) {
       if (matchesKey(data, "y")) {
-        // "Discard" means discard: drop every comment so the caller's
-        // buildPrompt finds none and leaves the composer untouched.
-        for (const file of this.#files) {
-          if (file.kind !== "text") continue;
-          for (const hunk of file.hunks) {
-            for (const line of hunk.lines) delete line.comment;
-          }
-        }
+        clearComments(this.#files);
         this.#done(null);
       } else if (matchesKey(data, "n") || matchesKey(data, "escape")) {
         this.#confirmQuit = false;
@@ -116,7 +96,7 @@ export class WalkthroughViewer implements Component {
 
   render(width: number): readonly string[] {
     const theme = this.#theme;
-    const commentCount = this.#countComments();
+    const commentCount = countComments(this.#files);
 
     const rows: string[] = [];
     rows.push(
@@ -133,16 +113,14 @@ export class WalkthroughViewer implements Component {
     );
     this.#lastViewportRows = viewportRows;
 
-    // Scroll so the cursor row is visible.
     const cursorRowIndex = this.#cursorRows[this.#cursor] ?? 0;
-    if (cursorRowIndex < this.#scrollOffset) {
-      this.#scrollOffset = cursorRowIndex;
-    } else if (cursorRowIndex >= this.#scrollOffset + viewportRows) {
-      this.#scrollOffset = cursorRowIndex - viewportRows + 1;
-    }
-    this.#scrollOffset = Math.max(0, this.#scrollOffset);
+    this.#scrollOffset = scrollIntoView(
+      this.#scrollOffset,
+      cursorRowIndex,
+      viewportRows,
+    );
 
-    const { maxOld, maxNew } = this.#gutterWidths();
+    const { maxOld, maxNew } = gutterWidths(this.#rows);
 
     const end = Math.min(this.#rows.length, this.#scrollOffset + viewportRows);
     for (let i = this.#scrollOffset; i < end; i++) {
@@ -156,6 +134,7 @@ export class WalkthroughViewer implements Component {
         ),
       );
     }
+
     // Pad the body so the overlay keeps a stable full-screen height.
     while (rows.length < viewportRows + 1) rows.push("");
 
@@ -232,43 +211,8 @@ export class WalkthroughViewer implements Component {
     return lineText;
   }
 
-  #gutterWidths(): { maxOld: number; maxNew: number } {
-    let maxOld = 0;
-    let maxNew = 0;
-    for (const row of this.#rows) {
-      if (row.kind !== "diffLine") continue;
-      const line = row.line;
-      if (line.kind === "context") {
-        maxOld = Math.max(maxOld, String(line.oldLine).length);
-        maxNew = Math.max(maxNew, String(line.newLine).length);
-      } else if (line.kind === "add") {
-        maxNew = Math.max(maxNew, String(line.newLine).length);
-      } else {
-        maxOld = Math.max(maxOld, String(line.oldLine).length);
-      }
-    }
-    return { maxOld, maxNew };
-  }
-
-  #countComments(): number {
-    let count = 0;
-    for (const file of this.#files) {
-      if (file.kind !== "text") continue;
-      for (const hunk of file.hunks) {
-        for (const line of hunk.lines) {
-          if (line.comment !== undefined) count++;
-        }
-      }
-    }
-    return count;
-  }
-
   #moveCursor(delta: number): void {
-    if (this.#cursorRows.length === 0) return;
-    const next = Math.min(
-      Math.max(this.#cursor + delta, 0),
-      this.#cursorRows.length - 1,
-    );
+    const next = moveCursor(this.#cursor, delta, this.#cursorRows.length);
     if (next !== this.#cursor) {
       this.#cursor = next;
       this.#tui.requestRender();
@@ -276,21 +220,15 @@ export class WalkthroughViewer implements Component {
   }
 
   #jumpFile(direction: 1 | -1): void {
-    if (this.#cursorRows.length === 0) return;
-    const row = this.#rows[this.#cursorRows[this.#cursor]!];
-    if (!row || row.kind !== "diffLine") return;
-    let target = row.fileIndex + direction;
-    while (target >= 0 && target < this.#files.length) {
-      const idx = this.#cursorRows.findIndex((i) => {
-        const r = this.#rows[i]!;
-        return r.kind === "diffLine" && r.fileIndex === target;
-      });
-      if (idx >= 0) {
-        this.#cursor = idx;
-        this.#tui.requestRender();
-        return;
-      }
-      target += direction; // skip binary-only files
+    const next = jumpFile(
+      this.#rows,
+      this.#cursorRows,
+      this.#cursor,
+      direction,
+    );
+    if (next !== this.#cursor) {
+      this.#cursor = next;
+      this.#tui.requestRender();
     }
   }
 
@@ -298,16 +236,12 @@ export class WalkthroughViewer implements Component {
     const row = this.#rows[this.#cursorRows[this.#cursor]!];
     if (!row || row.kind !== "diffLine") return;
     const line = row.line;
+
     const input = new Input();
     input.prompt = `annotate L${diffLineNumber(line)}: `;
     input.setValue(line.comment ?? "");
     input.onSubmit = (value: string) => {
-      const trimmed = value.trim();
-      if (trimmed) {
-        line.comment = trimmed;
-      } else {
-        delete line.comment;
-      }
+      applyComment(line, value);
       this.#annotating = null;
       this.#tui.requestRender();
     };
@@ -315,12 +249,13 @@ export class WalkthroughViewer implements Component {
       this.#annotating = null;
       this.#tui.requestRender();
     };
+
     this.#annotating = { input };
     this.#tui.requestRender();
   }
 
   #quit(): void {
-    if (this.#countComments() > 0) {
+    if (countComments(this.#files) > 0) {
       this.#confirmQuit = true;
       this.#tui.requestRender();
     } else {
