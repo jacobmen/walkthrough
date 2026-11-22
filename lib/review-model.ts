@@ -57,14 +57,15 @@ export function jumpFile(
     if (r.fileIndex > lastFile) lastFile = r.fileIndex;
   }
 
-  let target = row.fileIndex + direction;
-  while (target >= 0 && target <= lastFile) {
+  const fileCount = lastFile + 1;
+  let target = (row.fileIndex + direction + fileCount) % fileCount;
+  for (let hops = 0; hops < fileCount; hops++) {
     const idx = cursorRows.findIndex((i) => {
       const r = rows[i]!;
       return r.kind === "diffLine" && r.fileIndex === target;
     });
     if (idx >= 0) return idx;
-    target += direction; // skip files without diff lines
+    target = (target + direction + fileCount) % fileCount; // skip files without diff lines
   }
   return cursor;
 }

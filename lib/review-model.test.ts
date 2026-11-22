@@ -106,12 +106,33 @@ describe("jumpFile", () => {
     expect(jumpFile(rows, cursorRows, 2, -1)).toBe(0);
   });
 
-  test("forward at the last file → unchanged", () => {
-    expect(jumpFile(rows, cursorRows, 2, 1)).toBe(2);
+  test("forward at the last file wraps to the first file", () => {
+    expect(jumpFile(rows, cursorRows, 2, 1)).toBe(0);
   });
 
-  test("backward at the first file → unchanged", () => {
-    expect(jumpFile(rows, cursorRows, 0, -1)).toBe(0);
+  test("backward at the first file wraps to the last file", () => {
+    expect(jumpFile(rows, cursorRows, 0, -1)).toBe(2);
+  });
+
+  test("wrap skips a binary-only file at the seam", () => {
+    const seam = buildRows([
+      binaryFile("b.png"),
+      textFile("f1.ts", [{ header: "h1", lines: [add("x", 1)] }]),
+      textFile("f2.ts", [{ header: "h2", lines: [del("y", 2)] }]),
+    ]);
+
+    expect(jumpFile(seam.rows, seam.cursorRows, 1, 1)).toBe(0);
+  });
+
+  test("single diff-bearing file: mid-file wraps to its first line, first line unchanged", () => {
+    const solo = buildRows([
+      textFile("solo.ts", [
+        { header: "h", lines: [ctx("a", 1, 1), add("b", 2)] },
+      ]),
+    ]);
+
+    expect(jumpFile(solo.rows, solo.cursorRows, 1, 1)).toBe(0);
+    expect(jumpFile(solo.rows, solo.cursorRows, 0, -1)).toBe(0);
   });
 
   test("no diff-line rows anywhere → unchanged", () => {
