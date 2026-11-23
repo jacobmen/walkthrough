@@ -11,12 +11,18 @@ the unstaged git diff and annotate it with comments for the agent to address.
 
 - Formatting: `bun fmt`
 - Typechecking: `bunx tsc --noEmit`
-- Testing: `bun test`
+- Testing: `bun run test`
 
 ## Directory Structure
 
 - `index.ts`: omp extension entry point
 - `lib/`: Source code and unit tests
+- `scripts/`: utilities
+
+## E2E Testing
+
+When adding or updating visual, user-facing functionality, verify it with the
+pty driver `scripts/omp-pty.ts`.
 
 ## Development Guidelines
 
