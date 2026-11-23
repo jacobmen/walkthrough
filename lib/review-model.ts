@@ -1,34 +1,39 @@
 import type { DiffFile, DiffLine } from "./diff";
 
 export type Row =
-  | { kind: "fileHeader"; fileIndex: number }
-  | { kind: "placeholder"; fileIndex: number }
-  | { kind: "hunkHeader"; fileIndex: number; header: string }
-  | { kind: "diffLine"; fileIndex: number; line: DiffLine };
+  | { kind: "fileHeader"; file: DiffFile }
+  | { kind: "placeholder" }
+  | { kind: "hunkHeader"; header: string }
+  | { kind: "diffLine"; file: DiffFile; line: DiffLine };
+
+/** Cursor-navigable row: its position in `rows` plus the diffLine row itself. */
+export type CursorRow = {
+  rowIndex: number;
+  row: Extract<Row, { kind: "diffLine" }>;
+};
 
 export function buildRows(files: DiffFile[]): {
   rows: Row[];
-  cursorRows: number[];
+  cursorRows: CursorRow[];
 } {
   const rows: Row[] = [];
-  for (let fi = 0; fi < files.length; fi++) {
-    const file = files[fi]!;
-    rows.push({ kind: "fileHeader", fileIndex: fi });
+  for (const file of files) {
+    rows.push({ kind: "fileHeader", file });
     if (file.kind === "binary") {
-      rows.push({ kind: "placeholder", fileIndex: fi });
+      rows.push({ kind: "placeholder" });
       continue;
     }
     for (const hunk of file.hunks) {
-      rows.push({ kind: "hunkHeader", fileIndex: fi, header: hunk.header });
+      rows.push({ kind: "hunkHeader", header: hunk.header });
       for (const line of hunk.lines) {
-        rows.push({ kind: "diffLine", fileIndex: fi, line });
+        rows.push({ kind: "diffLine", file, line });
       }
     }
   }
 
-  const cursorRows: number[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    if (rows[i]!.kind === "diffLine") cursorRows.push(i);
+  const cursorRows: CursorRow[] = [];
+  for (const [rowIndex, row] of rows.entries()) {
+    if (row.kind === "diffLine") cursorRows.push({ rowIndex, row });
   }
   return { rows, cursorRows };
 }
@@ -43,31 +48,35 @@ export function moveCursor(
 }
 
 export function jumpFile(
-  rows: Row[],
-  cursorRows: number[],
+  cursorRows: CursorRow[],
   cursor: number,
   direction: 1 | -1,
+  files: DiffFile[],
 ): number {
   if (cursorRows.length === 0) return cursor;
-  const row = rows[cursorRows[cursor]!];
-  if (!row || row.kind !== "diffLine") return cursor;
+  const entry = cursorRows[cursor];
+  if (entry === undefined) return cursor;
 
-  let lastFile = 0;
-  for (const r of rows) {
-    if (r.fileIndex > lastFile) lastFile = r.fileIndex;
-  }
+  const start = files.indexOf(entry.row.file);
+  if (start === -1) return cursor;
 
-  const fileCount = lastFile + 1;
-  let target = (row.fileIndex + direction + fileCount) % fileCount;
-  for (let hops = 0; hops < fileCount; hops++) {
-    const idx = cursorRows.findIndex((i) => {
-      const r = rows[i]!;
-      return r.kind === "diffLine" && r.fileIndex === target;
-    });
-    if (idx >= 0) return idx;
-    target = (target + direction + fileCount) % fileCount; // skip files without diff lines
+  // Probe files in direction order, wrapping through the cursor's own file last.
+  let bestCursor: number | undefined;
+  let bestOrder = Infinity;
+  for (const [fi, file] of files.entries()) {
+    const first = cursorRows.findIndex((e) => e.row.file === file);
+    if (first < 0) continue;
+    const dist =
+      direction === 1
+        ? (fi - start + files.length) % files.length
+        : (start - fi + files.length) % files.length;
+    const order = dist === 0 ? files.length : dist;
+    if (order < bestOrder) {
+      bestOrder = order;
+      bestCursor = first;
+    }
   }
-  return cursor;
+  return bestCursor ?? cursor;
 }
 
 export function gutterWidths(rows: Row[]): { maxOld: number; maxNew: number } {

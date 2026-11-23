@@ -46,8 +46,8 @@ describe("cursor movement and annotate", () => {
     v.viewer.handleInput("j");
     annotate(v.viewer, "c1");
 
-    expect(v.lines[1].comment).toBe("c1");
-    expect(v.lines[0].comment).toBeUndefined();
+    expect(v.lines[1]!.comment).toBe("c1");
+    expect(v.lines[0]!.comment).toBeUndefined();
   });
 
   test("down arrow moves down", () => {
@@ -56,7 +56,7 @@ describe("cursor movement and annotate", () => {
     v.viewer.handleInput("\x1b[B");
     annotate(v.viewer, "c1");
 
-    expect(v.lines[1].comment).toBe("c1");
+    expect(v.lines[1]!.comment).toBe("c1");
   });
 
   test("k moves back up; up arrow stays at the top", () => {
@@ -66,14 +66,14 @@ describe("cursor movement and annotate", () => {
     v.viewer.handleInput("k");
     annotate(v.viewer, "top");
 
-    expect(v.lines[0].comment).toBe("top");
+    expect(v.lines[0]!.comment).toBe("top");
 
     const w = makeViewer();
 
     w.viewer.handleInput("\x1b[A");
     annotate(w.viewer, "top");
 
-    expect(w.lines[0].comment).toBe("top");
+    expect(w.lines[0]!.comment).toBe("top");
   });
 
   test("j clamps at the last line", () => {
@@ -82,8 +82,8 @@ describe("cursor movement and annotate", () => {
     for (let i = 0; i < 10; i++) v.viewer.handleInput("j");
     annotate(v.viewer, "last");
 
-    expect(v.lines[3].comment).toBe("last");
-    expect(v.lines[2].comment).toBeUndefined();
+    expect(v.lines[3]!.comment).toBe("last");
+    expect(v.lines[2]!.comment).toBeUndefined();
   });
 
   test("annotate prompt shows the target line number", () => {
@@ -103,13 +103,13 @@ describe("file jump", () => {
     v.viewer.handleInput("n");
     annotate(v.viewer, "c2");
 
-    expect(v.lines[2].comment).toBe("c2");
+    expect(v.lines[2]!.comment).toBe("c2");
 
     v.viewer.handleInput("p");
     annotate(v.viewer, "c1");
 
-    expect(v.lines[0].comment).toBe("c1");
-    expect(v.lines[2].comment).toBe("c2");
+    expect(v.lines[0]!.comment).toBe("c1");
+    expect(v.lines[2]!.comment).toBe("c2");
   });
 });
 
@@ -128,8 +128,8 @@ describe("page keys", () => {
 
     annotate(viewer, "pd");
 
-    expect(lines[38].comment).toBe("pd");
-    expect(lines[38].newLine).toBe(39);
+    expect(lines[38]!.comment).toBe("pd");
+    expect(lines[38]!.newLine).toBe(39);
   });
 
   test("pageUp goes back one viewport", () => {
@@ -144,7 +144,7 @@ describe("page keys", () => {
 
     annotate(viewer, "pu");
 
-    expect(lines[0].comment).toBe("pu");
+    expect(lines[0]!.comment).toBe("pu");
   });
 });
 
@@ -158,14 +158,14 @@ describe("annotate prompt lifecycle", () => {
     v.viewer.handleInput("1");
     v.viewer.handleInput("\x1b");
 
-    expect(v.lines[0].comment).toBeUndefined();
+    expect(v.lines[0]!.comment).toBeUndefined();
     expect(v.renderCount()).toBeGreaterThan(before);
 
     // Prompt closed: j moves the cursor again instead of typing into the input.
     v.viewer.handleInput("j");
     annotate(v.viewer, "c2");
 
-    expect(v.lines[1].comment).toBe("c2");
+    expect(v.lines[1]!.comment).toBe("c2");
   });
 
   test("annotating a commented line prefills; untouched submit keeps the comment", () => {
@@ -175,7 +175,7 @@ describe("annotate prompt lifecycle", () => {
     v.viewer.handleInput("a"); // input prefilled with "keep me"
     v.viewer.handleInput("\r"); // submit untouched
 
-    expect(v.lines[0].comment).toBe("keep me");
+    expect(v.lines[0]!.comment).toBe("keep me");
   });
 
   test("submitting an emptied value deletes an existing comment", () => {
@@ -186,7 +186,7 @@ describe("annotate prompt lifecycle", () => {
     for (let i = 0; i < 10; i++) v.viewer.handleInput("\x7f"); // backspace
     v.viewer.handleInput("\r");
 
-    expect(v.lines[0].comment).toBeUndefined();
+    expect(v.lines[0]!.comment).toBeUndefined();
   });
 });
 
@@ -257,7 +257,7 @@ describe("ignored keys", () => {
     expect(v.renderCount()).toBe(before);
 
     annotate(v.viewer, "c1"); // cursor never moved off the first line
-    expect(v.lines[0].comment).toBe("c1");
+    expect(v.lines[0]!.comment).toBe("c1");
   });
 });
 

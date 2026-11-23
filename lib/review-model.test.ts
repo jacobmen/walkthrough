@@ -16,51 +16,56 @@ describe("buildRows", () => {
     const l1 = ctx("a", 1, 1);
     const l2 = add("b", 2);
     const l3 = del("c", 3);
-
-    const { rows, cursorRows } = buildRows([
-      textFile("f.ts", [
-        { header: "@@ -1,1 +1,1 @@", lines: [l1] },
-        { header: "@@ -3,1 +3,1 @@", lines: [l2, l3] },
-      ]),
+    const file = textFile("f.ts", [
+      { header: "@@ -1,1 +1,1 @@", lines: [l1] },
+      { header: "@@ -3,1 +3,1 @@", lines: [l2, l3] },
     ]);
+
+    const { rows, cursorRows } = buildRows([file]);
 
     expect(rows).toEqual([
-      { kind: "fileHeader", fileIndex: 0 },
-      { kind: "hunkHeader", fileIndex: 0, header: "@@ -1,1 +1,1 @@" },
-      { kind: "diffLine", fileIndex: 0, line: l1 },
-      { kind: "hunkHeader", fileIndex: 0, header: "@@ -3,1 +3,1 @@" },
-      { kind: "diffLine", fileIndex: 0, line: l2 },
-      { kind: "diffLine", fileIndex: 0, line: l3 },
+      { kind: "fileHeader", file },
+      { kind: "hunkHeader", header: "@@ -1,1 +1,1 @@" },
+      { kind: "diffLine", file, line: l1 },
+      { kind: "hunkHeader", header: "@@ -3,1 +3,1 @@" },
+      { kind: "diffLine", file, line: l2 },
+      { kind: "diffLine", file, line: l3 },
     ]);
-    expect(cursorRows).toEqual([2, 4, 5]);
+    expect(cursorRows).toEqual([
+      { rowIndex: 2, row: { kind: "diffLine", file, line: l1 } },
+      { rowIndex: 4, row: { kind: "diffLine", file, line: l2 } },
+      { rowIndex: 5, row: { kind: "diffLine", file, line: l3 } },
+    ]);
   });
 
   test("binary file → header + placeholder, no cursor rows", () => {
-    const { rows, cursorRows } = buildRows([binaryFile("img.png")]);
+    const file = binaryFile("img.png");
+    const { rows, cursorRows } = buildRows([file]);
 
     expect(rows).toEqual([
-      { kind: "fileHeader", fileIndex: 0 },
-      { kind: "placeholder", fileIndex: 0 },
+      { kind: "fileHeader", file },
+      { kind: "placeholder" },
     ]);
     expect(cursorRows).toEqual([]);
   });
 
-  test("mixed files keep per-file indexes", () => {
+  test("mixed files keep file references", () => {
     const l1 = add("x", 1);
+    const binary = binaryFile("img.png");
+    const text = textFile("f.ts", [{ header: "@@", lines: [l1] }]);
 
-    const { rows, cursorRows } = buildRows([
-      binaryFile("img.png"),
-      textFile("f.ts", [{ header: "@@", lines: [l1] }]),
-    ]);
+    const { rows, cursorRows } = buildRows([binary, text]);
 
     expect(rows).toEqual([
-      { kind: "fileHeader", fileIndex: 0 },
-      { kind: "placeholder", fileIndex: 0 },
-      { kind: "fileHeader", fileIndex: 1 },
-      { kind: "hunkHeader", fileIndex: 1, header: "@@" },
-      { kind: "diffLine", fileIndex: 1, line: l1 },
+      { kind: "fileHeader", file: binary },
+      { kind: "placeholder" },
+      { kind: "fileHeader", file: text },
+      { kind: "hunkHeader", header: "@@" },
+      { kind: "diffLine", file: text, line: l1 },
     ]);
-    expect(cursorRows).toEqual([4]);
+    expect(cursorRows).toEqual([
+      { rowIndex: 4, row: { kind: "diffLine", file: text, line: l1 } },
+    ]);
   });
 });
 
@@ -92,53 +97,65 @@ describe("jumpFile", () => {
     binaryFile("f1.png"),
     textFile("f2.ts", [{ header: "h2", lines: [l2] }]),
   ];
-  const { rows, cursorRows } = buildRows(files);
-  // rows: 0 fileHeader f0, 1 hunkHeader h0, 2 diffLine l0, 3 diffLine l1,
-  // 4 fileHeader f1, 5 placeholder, 6 fileHeader f2, 7 hunkHeader h2, 8 diffLine l2
+  const { cursorRows } = buildRows(files);
+  // cursorRows: 0 → f0's l0 (row 2), 1 → f0's l1 (row 3), 2 → f2's l2 (row 8)
 
-  // jumpFile returns an index into cursorRows: 2 → row 8 (f2's first line), 0 → row 2 (f0's first line).
   test("forward skips a binary-only file and lands on its first line", () => {
-    expect(jumpFile(rows, cursorRows, 0, 1)).toBe(2);
-    expect(jumpFile(rows, cursorRows, 1, 1)).toBe(2);
+    expect(jumpFile(cursorRows, 0, 1, files)).toBe(2);
+    expect(jumpFile(cursorRows, 1, 1, files)).toBe(2);
   });
 
   test("backward lands on the first line of the previous file", () => {
-    expect(jumpFile(rows, cursorRows, 2, -1)).toBe(0);
+    expect(jumpFile(cursorRows, 2, -1, files)).toBe(0);
   });
 
   test("forward at the last file wraps to the first file", () => {
-    expect(jumpFile(rows, cursorRows, 2, 1)).toBe(0);
+    expect(jumpFile(cursorRows, 2, 1, files)).toBe(0);
   });
 
   test("backward at the first file wraps to the last file", () => {
-    expect(jumpFile(rows, cursorRows, 0, -1)).toBe(2);
+    expect(jumpFile(cursorRows, 0, -1, files)).toBe(2);
   });
 
   test("wrap skips a binary-only file at the seam", () => {
-    const seam = buildRows([
+    const seamFiles = [
       binaryFile("b.png"),
       textFile("f1.ts", [{ header: "h1", lines: [add("x", 1)] }]),
       textFile("f2.ts", [{ header: "h2", lines: [del("y", 2)] }]),
-    ]);
+    ];
+    const seam = buildRows(seamFiles);
 
-    expect(jumpFile(seam.rows, seam.cursorRows, 1, 1)).toBe(0);
+    expect(jumpFile(seam.cursorRows, 1, 1, seamFiles)).toBe(0);
+  });
+
+  test("forward past a trailing binary wraps to the first file", () => {
+    const trailingFiles = [
+      textFile("f0.ts", [{ header: "h0", lines: [add("a", 1)] }]),
+      textFile("f1.ts", [{ header: "h1", lines: [add("b", 1)] }]),
+      binaryFile("f2.png"),
+    ];
+    const trailing = buildRows(trailingFiles);
+
+    expect(jumpFile(trailing.cursorRows, 1, 1, trailingFiles)).toBe(0);
   });
 
   test("single diff-bearing file: mid-file wraps to its first line, first line unchanged", () => {
-    const solo = buildRows([
+    const soloFiles = [
       textFile("solo.ts", [
         { header: "h", lines: [ctx("a", 1, 1), add("b", 2)] },
       ]),
-    ]);
+    ];
+    const solo = buildRows(soloFiles);
 
-    expect(jumpFile(solo.rows, solo.cursorRows, 1, 1)).toBe(0);
-    expect(jumpFile(solo.rows, solo.cursorRows, 0, -1)).toBe(0);
+    expect(jumpFile(solo.cursorRows, 1, 1, soloFiles)).toBe(0);
+    expect(jumpFile(solo.cursorRows, 0, -1, soloFiles)).toBe(0);
   });
 
   test("no diff-line rows anywhere → unchanged", () => {
-    const bin = buildRows([binaryFile("b.png")]);
+    const binFiles = [binaryFile("b.png")];
+    const bin = buildRows(binFiles);
 
-    expect(jumpFile(bin.rows, bin.cursorRows, 0, 1)).toBe(0);
+    expect(jumpFile(bin.cursorRows, 0, 1, binFiles)).toBe(0);
   });
 });
 

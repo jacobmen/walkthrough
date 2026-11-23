@@ -201,23 +201,27 @@ function parseDiff(text: string, root: string, cwd: string): DiffFile[] {
         hunk.lines.push({
           kind: "add",
           content: raw.slice(1),
-          newLine: hunk.newLine++,
+          newLine: hunk.newLine,
         });
+        hunk.newLine++;
         hunk.newLeft--;
       } else if (marker === "-") {
         hunk.lines.push({
           kind: "del",
           content: raw.slice(1),
-          oldLine: hunk.oldLine++,
+          oldLine: hunk.oldLine,
         });
+        hunk.oldLine++;
         hunk.oldLeft--;
       } else if (marker === " ") {
         hunk.lines.push({
           kind: "context",
           content: raw.slice(1),
-          oldLine: hunk.oldLine++,
-          newLine: hunk.newLine++,
+          oldLine: hunk.oldLine,
+          newLine: hunk.newLine,
         });
+        hunk.oldLine++;
+        hunk.newLine++;
         hunk.oldLeft--;
         hunk.newLeft--;
       } else if (raw !== "") {
@@ -286,7 +290,7 @@ function stripAbPrefix(p: string): string {
   return two === "a/" || two === "b/" ? p.slice(2) : p;
 }
 
-function parseHunkHeader(raw: string): {
+export function parseHunkHeader(raw: string): {
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -294,11 +298,13 @@ function parseHunkHeader(raw: string): {
 } | null {
   const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
   if (!m) return null;
+  const [, oldStart, oldCount, newStart, newCount] = m;
+  if (oldStart === undefined || newStart === undefined) return null;
   return {
-    oldStart: Number.parseInt(m[1]!, 10),
-    oldCount: m[2] === undefined ? 1 : Number.parseInt(m[2], 10),
-    newStart: Number.parseInt(m[3]!, 10),
-    newCount: m[4] === undefined ? 1 : Number.parseInt(m[4], 10),
+    oldStart: Number.parseInt(oldStart, 10),
+    oldCount: oldCount === undefined ? 1 : Number.parseInt(oldCount, 10),
+    newStart: Number.parseInt(newStart, 10),
+    newCount: newCount === undefined ? 1 : Number.parseInt(newCount, 10),
   };
 }
 
@@ -314,18 +320,19 @@ function parseDiffFilePath(raw: string, prefix: string): string {
 }
 
 /** Undo git's C-style path quoting ("path\u00e9" etc.). Leaves unquoted input untouched. */
-function unquoteGitPath(s: string): string {
+export function unquoteGitPath(s: string): string {
   if (s.length < 2 || !s.startsWith('"') || !s.endsWith('"')) return s;
   const body = s.slice(1, -1);
   let out = "";
   for (let i = 0; i < body.length; i++) {
-    const ch = body[i]!;
+    const ch = body.charAt(i);
     if (ch !== "\\") {
       out += ch;
       continue;
     }
-    const next = body[++i];
-    if (next === undefined) break;
+    i++;
+    const next = body.charAt(i);
+    if (next === "") break;
     switch (next) {
       case "a":
         out += "\x07";
@@ -351,13 +358,11 @@ function unquoteGitPath(s: string): string {
       default:
         if (next >= "0" && next <= "7") {
           let oct = next;
-          while (
-            oct.length < 3 &&
-            body[i + 1] !== undefined &&
-            body[i + 1]! >= "0" &&
-            body[i + 1]! <= "7"
-          ) {
-            oct += body[++i]!;
+          while (oct.length < 3) {
+            const digit = body.charAt(i + 1);
+            if (digit < "0" || digit > "7") break;
+            oct += digit;
+            i++;
           }
           out += String.fromCharCode(Number.parseInt(oct, 8));
         } else {

@@ -13,6 +13,7 @@ import { type DiffFile, diffLineNumber } from "./diff";
 import {
   applyComment,
   buildRows,
+  type CursorRow,
   clearComments,
   countComments,
   gutterWidths,
@@ -33,7 +34,7 @@ export class WalkthroughViewer implements Component {
   readonly #theme: Theme;
   readonly #done: (result: null) => void;
   readonly #rows: Row[];
-  readonly #cursorRows: number[];
+  readonly #cursorRows: CursorRow[];
   #cursor = 0;
   #scrollOffset = 0;
   #annotating: { input: Input } | null = null;
@@ -113,26 +114,19 @@ export class WalkthroughViewer implements Component {
     );
     this.#lastViewportRows = viewportRows;
 
-    const cursorRowIndex = this.#cursorRows[this.#cursor] ?? 0;
+    const cursorEntry = this.#cursorRows[this.#cursor];
     this.#scrollOffset = scrollIntoView(
       this.#scrollOffset,
-      cursorRowIndex,
+      cursorEntry?.rowIndex ?? 0,
       viewportRows,
     );
 
     const { maxOld, maxNew } = gutterWidths(this.#rows);
 
     const end = Math.min(this.#rows.length, this.#scrollOffset + viewportRows);
-    for (let i = this.#scrollOffset; i < end; i++) {
-      rows.push(
-        this.#renderRow(
-          this.#rows[i]!,
-          i === cursorRowIndex,
-          width,
-          maxOld,
-          maxNew,
-        ),
-      );
+    const cursorRow = cursorEntry?.row;
+    for (const row of this.#rows.slice(this.#scrollOffset, end)) {
+      rows.push(this.#renderRow(row, row === cursorRow, width, maxOld, maxNew));
     }
 
     // Pad the body so the overlay keeps a stable full-screen height.
@@ -169,10 +163,10 @@ export class WalkthroughViewer implements Component {
     const theme = this.#theme;
     let text: string;
     if (row.kind === "fileHeader") {
-      const file = this.#files[row.fileIndex]!;
+      const file = row.file;
       const pos = theme.fg(
         "dim",
-        `[${row.fileIndex + 1}/${this.#files.length}] `,
+        `[${this.#files.indexOf(file) + 1}/${this.#files.length}] `,
       );
       const status = theme.fg("muted", ` (${file.status})`);
       text = pos + theme.bold(file.path) + status;
@@ -221,10 +215,10 @@ export class WalkthroughViewer implements Component {
 
   #jumpFile(direction: 1 | -1): void {
     const next = jumpFile(
-      this.#rows,
       this.#cursorRows,
       this.#cursor,
       direction,
+      this.#files,
     );
     if (next !== this.#cursor) {
       this.#cursor = next;
@@ -233,9 +227,9 @@ export class WalkthroughViewer implements Component {
   }
 
   #startAnnotate(): void {
-    const row = this.#rows[this.#cursorRows[this.#cursor]!];
-    if (!row || row.kind !== "diffLine") return;
-    const line = row.line;
+    const entry = this.#cursorRows[this.#cursor];
+    if (entry === undefined) return;
+    const line = entry.row.line;
 
     const input = new Input();
     input.prompt = `annotate L${diffLineNumber(line)}: `;
