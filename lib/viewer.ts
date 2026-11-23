@@ -19,22 +19,16 @@ import {
   gutterWidths,
   type Row,
   scrollIntoView,
-  jumpFile,
   moveCursor,
 } from "./review-model";
 
-/**
- * Full-screen overlay reviewing the unstaged diff: j/k to move, `a` to annotate
- * the cursor line, p/n to jump between files, `d` to finish (comments are read
- * off the DiffFile objects by the caller), q/Esc to quit.
- */
 export class WalkthroughViewer implements Component {
   readonly #files: DiffFile[];
   readonly #tui: TUI;
   readonly #theme: Theme;
   readonly #done: (result: null) => void;
-  readonly #rows: Row[];
-  readonly #cursorRows: CursorRow[];
+  readonly #fileRows: { rows: Row[]; cursorRows: CursorRow[] }[];
+  #fileIndex = 0;
   #cursor = 0;
   #scrollOffset = 0;
   #annotating: { input: Input } | null = null;
@@ -52,9 +46,13 @@ export class WalkthroughViewer implements Component {
     this.#theme = theme;
     this.#done = done;
 
-    const { rows, cursorRows } = buildRows(files);
-    this.#rows = rows;
-    this.#cursorRows = cursorRows;
+    this.#fileRows = files.map((file) => buildRows(file));
+  }
+
+  get #current(): { rows: Row[]; cursorRows: CursorRow[] } {
+    const screen = this.#fileRows[this.#fileIndex];
+    if (screen === undefined) throw new Error("fileIndex out of range");
+    return screen;
   }
 
   handleInput(data: string): void {
@@ -78,9 +76,9 @@ export class WalkthroughViewer implements Component {
     } else if (matchesKey(data, "k") || matchesKey(data, "up")) {
       this.#moveCursor(-1);
     } else if (matchesKey(data, "n")) {
-      this.#jumpFile(1);
+      this.#switchFile(1);
     } else if (matchesKey(data, "p")) {
-      this.#jumpFile(-1);
+      this.#switchFile(-1);
     } else if (matchesKey(data, "pageDown")) {
       this.#moveCursor(this.#lastViewportRows);
     } else if (matchesKey(data, "pageUp")) {
@@ -114,18 +112,20 @@ export class WalkthroughViewer implements Component {
     );
     this.#lastViewportRows = viewportRows;
 
-    const cursorEntry = this.#cursorRows[this.#cursor];
+    const { rows: fileRows, cursorRows } = this.#current;
+
+    const cursorEntry = cursorRows[this.#cursor];
     this.#scrollOffset = scrollIntoView(
       this.#scrollOffset,
       cursorEntry?.rowIndex ?? 0,
       viewportRows,
     );
 
-    const { maxOld, maxNew } = gutterWidths(this.#rows);
+    const { maxOld, maxNew } = gutterWidths(fileRows);
 
-    const end = Math.min(this.#rows.length, this.#scrollOffset + viewportRows);
+    const end = Math.min(fileRows.length, this.#scrollOffset + viewportRows);
     const cursorRow = cursorEntry?.row;
-    for (const row of this.#rows.slice(this.#scrollOffset, end)) {
+    for (const row of fileRows.slice(this.#scrollOffset, end)) {
       rows.push(this.#renderRow(row, row === cursorRow, width, maxOld, maxNew));
     }
 
@@ -166,7 +166,7 @@ export class WalkthroughViewer implements Component {
       const file = row.file;
       const pos = theme.fg(
         "dim",
-        `[${this.#files.indexOf(file) + 1}/${this.#files.length}] `,
+        `[${this.#fileIndex + 1}/${this.#files.length}] `,
       );
       const status = theme.fg("muted", ` (${file.status})`);
       text = pos + theme.bold(file.path) + status;
@@ -206,19 +206,10 @@ export class WalkthroughViewer implements Component {
   }
 
   #moveCursor(delta: number): void {
-    const next = moveCursor(this.#cursor, delta, this.#cursorRows.length);
-    if (next !== this.#cursor) {
-      this.#cursor = next;
-      this.#tui.requestRender();
-    }
-  }
-
-  #jumpFile(direction: 1 | -1): void {
-    const next = jumpFile(
-      this.#cursorRows,
+    const next = moveCursor(
       this.#cursor,
-      direction,
-      this.#files,
+      delta,
+      this.#current.cursorRows.length,
     );
     if (next !== this.#cursor) {
       this.#cursor = next;
@@ -226,8 +217,18 @@ export class WalkthroughViewer implements Component {
     }
   }
 
+  #switchFile(direction: 1 | -1): void {
+    const next =
+      (this.#fileIndex + direction + this.#files.length) % this.#files.length;
+    if (next === this.#fileIndex) return; // single file: nothing to switch
+    this.#fileIndex = next;
+    this.#cursor = 0;
+    this.#scrollOffset = 0;
+    this.#tui.requestRender();
+  }
+
   #startAnnotate(): void {
-    const entry = this.#cursorRows[this.#cursor];
+    const entry = this.#current.cursorRows[this.#cursor];
     if (entry === undefined) return;
     const line = entry.row.line;
 

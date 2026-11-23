@@ -76,14 +76,14 @@ describe("cursor movement and annotate", () => {
     expect(w.lines[0]!.comment).toBe("top");
   });
 
-  test("j clamps at the last line", () => {
+  test("j clamps at the last line of the current file", () => {
     const v = makeViewer();
 
     for (let i = 0; i < 10; i++) v.viewer.handleInput("j");
     annotate(v.viewer, "last");
 
-    expect(v.lines[3]!.comment).toBe("last");
-    expect(v.lines[2]!.comment).toBeUndefined();
+    expect(v.lines[1]!.comment).toBe("last");
+    expect(v.lines[3]!.comment).toBeUndefined();
   });
 
   test("annotate prompt shows the target line number", () => {
@@ -96,8 +96,8 @@ describe("cursor movement and annotate", () => {
   });
 });
 
-describe("file jump", () => {
-  test("n jumps to the first line of the next file, p back", () => {
+describe("file switch", () => {
+  test("n shows the next file's first line, p back", () => {
     const v = makeViewer();
 
     v.viewer.handleInput("n");
@@ -110,6 +110,45 @@ describe("file jump", () => {
 
     expect(v.lines[0]!.comment).toBe("c1");
     expect(v.lines[2]!.comment).toBe("c2");
+  });
+
+  test("n/p swap the rendered file", () => {
+    const v = makeViewer();
+
+    const before = v.viewer.render(80);
+    expect(before[1]).toContain("[1/2] a.ts");
+    expect(before.some((line) => line.includes("b.ts"))).toBe(false);
+
+    v.viewer.handleInput("n");
+    const after = v.viewer.render(80);
+    expect(after[1]).toContain("[2/2] b.ts");
+    expect(after.some((line) => line.includes("a.ts"))).toBe(false);
+
+    v.viewer.handleInput("p");
+    expect(v.viewer.render(80)[1]).toContain("[1/2] a.ts");
+  });
+
+  test("wraps at both ends", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("p"); // a.ts → wraps to b.ts
+    expect(v.viewer.render(80)[1]).toContain("[2/2] b.ts");
+
+    v.viewer.handleInput("n"); // back to a.ts
+    v.viewer.handleInput("n"); // a.ts → b.ts
+    v.viewer.handleInput("n"); // wraps to a.ts
+    expect(v.viewer.render(80)[1]).toContain("[1/2] a.ts");
+  });
+
+  test("switching files resets the cursor to the new file's first line", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("j"); // a.ts: beta (index 1)
+    v.viewer.handleInput("n"); // b.ts, cursor resets to gamma (index 0)
+    annotate(v.viewer, "g");
+
+    expect(v.lines[2]!.comment).toBe("g");
+    expect(v.lines[3]!.comment).toBeUndefined();
   });
 });
 
@@ -262,7 +301,7 @@ describe("ignored keys", () => {
 });
 
 describe("render shape", () => {
-  test("header, file headers, hunk header, and footer with identity theme", () => {
+  test("renders only the current file's rows", () => {
     const v = makeViewer();
 
     const out = v.viewer.render(80);
@@ -272,10 +311,23 @@ describe("render shape", () => {
     expect(out[2]).toBe("@@ -1,2 +1,2 @@");
     expect(out[3]).toContain("alpha");
     expect(out[4]).toContain("beta");
-    expect(out[5]).toContain("[2/2] b.ts (modified)");
+    expect(out.some((line) => line.includes("b.ts"))).toBe(false);
     expect(out.at(-1)).toBe(
       "j/k move · a annotate · p/n file · d done · q quit",
     );
+  });
+
+  test("after n only the next file's rows render", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("n");
+    const out = v.viewer.render(80);
+
+    expect(out[1]).toContain("[2/2] b.ts (modified)");
+    expect(out[2]).toBe("@@ -1,2 +1,2 @@");
+    expect(out[3]).toContain("gamma");
+    expect(out[4]).toContain("delta");
+    expect(out.some((line) => line.includes("a.ts"))).toBe(false);
   });
 
   test("cursor row padded to full width; other rows shorter", () => {
@@ -295,7 +347,7 @@ describe("render shape", () => {
     expect(v.viewer.render(80)[0]).toContain("· 1 comments");
   });
 
-  test("binary file renders header and placeholder rows", () => {
+  test("binary file gets its own placeholder screen", () => {
     const files = [
       textFile("a.ts", [{ header: "@@", lines: [add("alpha", 1)] }]),
       binaryFile("logo.png"),
@@ -303,11 +355,18 @@ describe("render shape", () => {
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
-    const out = viewer.render(80);
+    const first = viewer.render(80);
+    expect(first[1]).toContain("[1/2] a.ts (modified)");
+    expect(first.some((line) => line.includes("logo.png"))).toBe(false);
 
-    expect(out[1]).toContain("[1/2] a.ts (modified)");
-    expect(out[4]).toContain("[2/2] logo.png (modified)");
-    expect(out[5]).toContain("binary file — not displayed");
+    viewer.handleInput("n");
+    const second = viewer.render(80);
+    expect(second[1]).toContain("[2/2] logo.png (modified)");
+    expect(second[2]).toContain("binary file — not displayed");
+    expect(second.some((line) => line.includes("alpha"))).toBe(false);
+
+    viewer.handleInput("a"); // no cursor rows on a binary screen
+    expect(viewer.render(80).at(-2)).not.toContain("annotate");
   });
 });
 

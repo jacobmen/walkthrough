@@ -2,6 +2,11 @@
 
 A file for coding agents.
 
+## Summary
+
+This project is an OMP extension allowing the user to quickly walk through
+the unstaged git diff and annotate it with comments for the agent to address.
+
 ## Commands
 
 - Formatting: `bun fmt`

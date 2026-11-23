@@ -12,17 +12,15 @@ export type CursorRow = {
   row: Extract<Row, { kind: "diffLine" }>;
 };
 
-export function buildRows(files: DiffFile[]): {
+export function buildRows(file: DiffFile): {
   rows: Row[];
   cursorRows: CursorRow[];
 } {
   const rows: Row[] = [];
-  for (const file of files) {
-    rows.push({ kind: "fileHeader", file });
-    if (file.kind === "binary") {
-      rows.push({ kind: "placeholder" });
-      continue;
-    }
+  rows.push({ kind: "fileHeader", file });
+  if (file.kind === "binary") {
+    rows.push({ kind: "placeholder" });
+  } else {
     for (const hunk of file.hunks) {
       rows.push({ kind: "hunkHeader", header: hunk.header });
       for (const line of hunk.lines) {
@@ -45,38 +43,6 @@ export function moveCursor(
 ): number {
   if (cursorRowCount === 0) return cursor;
   return Math.min(Math.max(cursor + delta, 0), cursorRowCount - 1);
-}
-
-export function jumpFile(
-  cursorRows: CursorRow[],
-  cursor: number,
-  direction: 1 | -1,
-  files: DiffFile[],
-): number {
-  if (cursorRows.length === 0) return cursor;
-  const entry = cursorRows[cursor];
-  if (entry === undefined) return cursor;
-
-  const start = files.indexOf(entry.row.file);
-  if (start === -1) return cursor;
-
-  // Probe files in direction order, wrapping through the cursor's own file last.
-  let bestCursor: number | undefined;
-  let bestOrder = Infinity;
-  for (const [fi, file] of files.entries()) {
-    const first = cursorRows.findIndex((e) => e.row.file === file);
-    if (first < 0) continue;
-    const dist =
-      direction === 1
-        ? (fi - start + files.length) % files.length
-        : (start - fi + files.length) % files.length;
-    const order = dist === 0 ? files.length : dist;
-    if (order < bestOrder) {
-      bestOrder = order;
-      bestCursor = first;
-    }
-  }
-  return bestCursor ?? cursor;
 }
 
 export function gutterWidths(rows: Row[]): { maxOld: number; maxNew: number } {
