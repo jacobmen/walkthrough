@@ -79,9 +79,9 @@ export class WalkthroughViewer implements Component {
       this.#switchFile(1);
     } else if (matchesKey(data, "p")) {
       this.#switchFile(-1);
-    } else if (matchesKey(data, "pageDown")) {
+    } else if (matchesKey(data, "ctrl+f")) {
       this.#moveCursor(this.#lastViewportRows);
-    } else if (matchesKey(data, "pageUp")) {
+    } else if (matchesKey(data, "ctrl+b")) {
       this.#moveCursor(-this.#lastViewportRows);
     } else if (matchesKey(data, "ctrl+d")) {
       this.#moveCursor(Math.floor(this.#lastViewportRows / 2));
@@ -149,7 +149,7 @@ export class WalkthroughViewer implements Component {
         : truncateToWidth(
             theme.fg(
               "dim",
-              "j/k move · ^d/^u half · a annotate · p/n file · d done · q quit",
+              "j/k move · ^f/^b page · ^d/^u half · a annotate · p/n file · d done · q quit",
             ),
             width,
           ),

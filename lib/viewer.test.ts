@@ -153,7 +153,7 @@ describe("file switch", () => {
 });
 
 describe("page keys", () => {
-  test("pageDown advances one viewport (render(80) sets 38 rows), with a render request", () => {
+  test("ctrl+f advances one viewport (render(80) sets 38 rows), with a render request", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
     const files = [textFile("big.ts", [{ header: "@@", lines }])];
     const { tui, renderCount } = fakeTui(40);
@@ -161,7 +161,7 @@ describe("page keys", () => {
 
     viewer.render(80); // viewportRows = 40 - 2 = 38
     const before = renderCount();
-    viewer.handleInput("\x1b[6~"); // pageDown: +38 rows
+    viewer.handleInput("\x06"); // ctrl+f: +38 rows
 
     expect(renderCount()).toBe(before + 1);
 
@@ -171,15 +171,15 @@ describe("page keys", () => {
     expect(lines[38]!.newLine).toBe(39);
   });
 
-  test("pageUp goes back one viewport", () => {
+  test("ctrl+b goes back one viewport", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
     const files = [textFile("big.ts", [{ header: "@@", lines }])];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
     viewer.render(80);
-    viewer.handleInput("\x1b[6~");
-    viewer.handleInput("\x1b[5~"); // pageUp: -38 rows
+    viewer.handleInput("\x06");
+    viewer.handleInput("\x02"); // ctrl+b: -38 rows
 
     annotate(viewer, "pu");
 
@@ -388,7 +388,7 @@ describe("render shape", () => {
     expect(out[4]).toContain("beta");
     expect(out.some((line) => line.includes("b.ts"))).toBe(false);
     expect(out.at(-1)).toBe(
-      "j/k move · ^d/^u half · a annotate · p/n file · d done · q quit",
+      "j/k move · ^f/^b page · ^d/^u half · a annotate · p/n file · d done · q quit",
     );
   });
 
