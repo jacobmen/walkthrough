@@ -185,6 +185,81 @@ describe("page keys", () => {
 
     expect(lines[0]!.comment).toBe("pu");
   });
+
+  test("ctrl+d advances half a viewport (half of 38 = 19), with a render request, and not done", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
+    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const { tui, renderCount } = fakeTui(40);
+    let doneCalls = 0;
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {
+      doneCalls++;
+    });
+
+    viewer.render(80); // viewportRows = 40 - 2 = 38, half = 19
+    const before = renderCount();
+    viewer.handleInput("\x04"); // ctrl+d
+
+    expect(renderCount()).toBe(before + 1);
+    expect(doneCalls).toBe(0);
+
+    annotate(viewer, "cd");
+
+    expect(lines[19]!.comment).toBe("cd");
+    expect(lines[19]!.newLine).toBe(20);
+  });
+
+  test("ctrl+d twice scrolls the content: line38 in, line0 out", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
+    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80);
+    viewer.handleInput("\x04");
+    viewer.handleInput("\x04");
+
+    const out = viewer.render(80);
+
+    expect(out.some((line) => line.includes("line38"))).toBe(true);
+    expect(out.some((line) => line.includes("line0"))).toBe(false);
+  });
+
+  test("ctrl+d four times clamps at the last cursor row", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
+    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80);
+    viewer.handleInput("\x04");
+    viewer.handleInput("\x04");
+    viewer.handleInput("\x04");
+    viewer.handleInput("\x04");
+
+    annotate(viewer, "cd");
+
+    expect(lines[49]!.comment).toBe("cd");
+  });
+
+  test("ctrl+u scrolls back up; two presses undo two and line0 is back on screen", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
+    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80);
+    viewer.handleInput("\x04");
+    viewer.handleInput("\x04");
+    viewer.handleInput("\x15"); // ctrl+u
+    viewer.handleInput("\x15");
+
+    annotate(viewer, "cu");
+
+    const out = viewer.render(80);
+
+    expect(lines[0]!.comment).toBe("cu");
+    expect(out.some((line) => line.includes("line0"))).toBe(true);
+  });
 });
 
 describe("annotate prompt lifecycle", () => {
@@ -313,7 +388,7 @@ describe("render shape", () => {
     expect(out[4]).toContain("beta");
     expect(out.some((line) => line.includes("b.ts"))).toBe(false);
     expect(out.at(-1)).toBe(
-      "j/k move · a annotate · p/n file · d done · q quit",
+      "j/k move · ^d/^u half · a annotate · p/n file · d done · q quit",
     );
   });
 

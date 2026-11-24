@@ -83,6 +83,10 @@ export class WalkthroughViewer implements Component {
       this.#moveCursor(this.#lastViewportRows);
     } else if (matchesKey(data, "pageUp")) {
       this.#moveCursor(-this.#lastViewportRows);
+    } else if (matchesKey(data, "ctrl+d")) {
+      this.#moveCursor(Math.floor(this.#lastViewportRows / 2));
+    } else if (matchesKey(data, "ctrl+u")) {
+      this.#moveCursor(-Math.floor(this.#lastViewportRows / 2));
     } else if (matchesKey(data, "a")) {
       this.#startAnnotate();
     } else if (matchesKey(data, "d")) {
@@ -145,7 +149,7 @@ export class WalkthroughViewer implements Component {
         : truncateToWidth(
             theme.fg(
               "dim",
-              "j/k move · a annotate · p/n file · d done · q quit",
+              "j/k move · ^d/^u half · a annotate · p/n file · d done · q quit",
             ),
             width,
           ),
