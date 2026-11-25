@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { DiffFile } from "./diff";
 import { buildPrompt } from "./prompt";
 import { countComments } from "./review-model";
 import {
@@ -8,7 +9,7 @@ import {
   identityTheme,
   textFile,
 } from "./test-fixtures";
-import { WalkthroughViewer } from "./viewer";
+import { type NonEmpty, WalkthroughViewer } from "./viewer";
 
 /** Two text files of two `add` lines each. Cursor rows: alpha, beta, gamma, delta. */
 function makeViewer() {
@@ -18,7 +19,7 @@ function makeViewer() {
     add("gamma", 1),
     add("delta", 2),
   ];
-  const files = [
+  const files: NonEmpty<DiffFile> = [
     textFile("a.ts", [{ header: "@@ -1,2 +1,2 @@", lines: lines.slice(0, 2) }]),
     textFile("b.ts", [{ header: "@@ -1,2 +1,2 @@", lines: lines.slice(2) }]),
   ];
@@ -150,12 +151,31 @@ describe("file switch", () => {
     expect(v.lines[2]!.comment).toBe("g");
     expect(v.lines[3]!.comment).toBeUndefined();
   });
+
+  test("n/p on a single file do nothing and request no render", () => {
+    const lines = Array.from({ length: 3 }, (_, i) => add(`line${i}`, i + 1));
+    const files: NonEmpty<DiffFile> = [
+      textFile("only.ts", [{ header: "@@", lines }]),
+    ];
+    const { tui, renderCount } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80);
+    const before = renderCount();
+    viewer.handleInput("n");
+    viewer.handleInput("p");
+
+    expect(renderCount()).toBe(before);
+    expect(viewer.render(80)[1]).toContain("[1/1] only.ts");
+  });
 });
 
 describe("page keys", () => {
   test("ctrl+f advances one viewport of body rows (render(80) sets 37), with a render request", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui, renderCount } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
@@ -173,7 +193,9 @@ describe("page keys", () => {
 
   test("ctrl+b goes back one viewport", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
@@ -188,7 +210,9 @@ describe("page keys", () => {
 
   test("ctrl+d advances half a viewport (half of 37 = 18), with a render request, and not done", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui, renderCount } = fakeTui(40);
     let doneCalls = 0;
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {
@@ -210,7 +234,9 @@ describe("page keys", () => {
 
   test("three ctrl+d scroll the content: line38 in, line0 out", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
@@ -227,7 +253,9 @@ describe("page keys", () => {
 
   test("ctrl+d four times clamps at the last cursor row", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
@@ -244,7 +272,9 @@ describe("page keys", () => {
 
   test("ctrl+u scrolls back up; two presses undo two and line0 is back on screen", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
@@ -424,7 +454,7 @@ describe("render shape", () => {
   });
 
   test("binary file gets its own placeholder screen", () => {
-    const files = [
+    const files: NonEmpty<DiffFile> = [
       textFile("a.ts", [{ header: "@@", lines: [add("alpha", 1)] }]),
       binaryFile("logo.png"),
     ];
@@ -447,7 +477,9 @@ describe("render shape", () => {
 
   test("file header stays pinned after scrolling", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
-    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+    ];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 

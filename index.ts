@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { captureDiff } from "./lib/diff";
 import { buildPrompt } from "./lib/prompt";
-import { WalkthroughViewer } from "./lib/viewer";
+import { nonEmpty, WalkthroughViewer } from "./lib/viewer";
 
 export default function walkthrough(pi: ExtensionAPI) {
   pi.registerCommand("walkthrough", {
@@ -23,7 +23,7 @@ export default function walkthrough(pi: ExtensionAPI) {
         return;
       }
 
-      if (files.length === 0) {
+      if (!nonEmpty(files)) {
         ctx.ui.notify("No unstaged changes", "info");
         return;
       }

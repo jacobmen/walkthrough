@@ -22,13 +22,33 @@ import {
   moveCursor,
 } from "./review-model";
 
+export type NonEmpty<T> = [T, ...T[]];
+
+export function nonEmpty<T>(items: T[]): items is NonEmpty<T> {
+  return items.length > 0;
+}
+
+type Entry = {
+  file: DiffFile;
+  index: number;
+  rows: Row[];
+  cursorRows: CursorRow[];
+};
+
+function rotate(entries: NonEmpty<Entry>, direction: 1 | -1): NonEmpty<Entry> {
+  const off = direction === 1 ? 1 : entries.length - 1;
+  const [head, ...tail] = [...entries.slice(off), ...entries.slice(0, off)];
+  if (head === undefined) {
+    throw new Error("unreachable: rotation of a non-empty ring");
+  }
+  return [head, ...tail];
+}
+
 export class WalkthroughViewer implements Component {
-  readonly #files: DiffFile[];
   readonly #tui: TUI;
   readonly #theme: Theme;
   readonly #done: (result: null) => void;
-  readonly #fileRows: { rows: Row[]; cursorRows: CursorRow[] }[];
-  #fileIndex = 0;
+  #entries: NonEmpty<Entry>;
   #cursor = 0;
   #scrollOffset = 0;
   #annotating: { input: Input } | null = null;
@@ -36,29 +56,31 @@ export class WalkthroughViewer implements Component {
   #lastViewportRows = 20;
 
   constructor(
-    files: DiffFile[],
+    files: NonEmpty<DiffFile>,
     tui: TUI,
     theme: Theme,
     done: (result: null) => void,
   ) {
-    this.#files = files;
     this.#tui = tui;
     this.#theme = theme;
     this.#done = done;
-
-    this.#fileRows = files.map((file) => buildRows(file));
+    const [first, ...rest] = files;
+    this.#entries = [
+      { file: first, index: 0, ...buildRows(first) },
+      ...rest.map((file, index) => ({
+        file,
+        index: index + 1,
+        ...buildRows(file),
+      })),
+    ];
   }
 
-  get #current(): { rows: Row[]; cursorRows: CursorRow[] } {
-    const screen = this.#fileRows[this.#fileIndex];
-    if (screen === undefined) throw new Error("fileIndex out of range");
-    return screen;
+  get #current(): Entry {
+    return this.#entries[0];
   }
 
-  get #currentFile(): DiffFile {
-    const file = this.#files[this.#fileIndex];
-    if (file === undefined) throw new Error("fileIndex out of range");
-    return file;
+  get #files(): DiffFile[] {
+    return this.#entries.map((entry) => entry.file);
   }
 
   handleInput(data: string): void {
@@ -114,7 +136,7 @@ export class WalkthroughViewer implements Component {
         width,
       ),
     );
-    rows.push(this.#renderFileHeader(this.#currentFile, width));
+    rows.push(this.#renderFileHeader(this.#current, width));
 
     const annotating = this.#annotating !== null;
     const viewportRows = Math.max(
@@ -166,14 +188,14 @@ export class WalkthroughViewer implements Component {
     return rows;
   }
 
-  #renderFileHeader(file: DiffFile, width: number): string {
+  #renderFileHeader(entry: Entry, width: number): string {
     const theme = this.#theme;
     const pos = theme.fg(
       "dim",
-      `[${this.#fileIndex + 1}/${this.#files.length}] `,
+      `[${entry.index + 1}/${this.#entries.length}] `,
     );
-    const status = theme.fg("muted", ` (${file.status})`);
-    const text = pos + theme.bold(file.path) + status;
+    const status = theme.fg("muted", ` (${entry.file.status})`);
+    const text = pos + theme.bold(entry.file.path) + status;
     return visibleWidth(text) > width ? truncateToWidth(text, width) : text;
   }
 
@@ -234,10 +256,8 @@ export class WalkthroughViewer implements Component {
   }
 
   #switchFile(direction: 1 | -1): void {
-    const next =
-      (this.#fileIndex + direction + this.#files.length) % this.#files.length;
-    if (next === this.#fileIndex) return; // single file: nothing to switch
-    this.#fileIndex = next;
+    if (this.#entries.length === 1) return; // single file: nothing to switch
+    this.#entries = rotate(this.#entries, direction);
     this.#cursor = 0;
     this.#scrollOffset = 0;
     this.#tui.requestRender();
