@@ -1,7 +1,6 @@
 import type { DiffFile, DiffLine } from "./diff";
 
 export type Row =
-  | { kind: "fileHeader"; file: DiffFile }
   | { kind: "placeholder" }
   | { kind: "hunkHeader"; header: string }
   | { kind: "diffLine"; file: DiffFile; line: DiffLine };
@@ -17,7 +16,6 @@ export function buildRows(file: DiffFile): {
   cursorRows: CursorRow[];
 } {
   const rows: Row[] = [];
-  rows.push({ kind: "fileHeader", file });
   if (file.kind === "binary") {
     rows.push({ kind: "placeholder" });
   } else {

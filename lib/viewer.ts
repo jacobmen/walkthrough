@@ -55,6 +55,12 @@ export class WalkthroughViewer implements Component {
     return screen;
   }
 
+  get #currentFile(): DiffFile {
+    const file = this.#files[this.#fileIndex];
+    if (file === undefined) throw new Error("fileIndex out of range");
+    return file;
+  }
+
   handleInput(data: string): void {
     if (this.#annotating) {
       this.#annotating.input.handleInput(data);
@@ -108,13 +114,16 @@ export class WalkthroughViewer implements Component {
         width,
       ),
     );
+    rows.push(this.#renderFileHeader(this.#currentFile, width));
 
     const annotating = this.#annotating !== null;
     const viewportRows = Math.max(
       1,
       this.#tui.terminal.rows - 2 - (annotating ? 1 : 0),
     );
-    this.#lastViewportRows = viewportRows;
+    // Pinned file header takes one row; Math.max guards tiny terminals.
+    const bodyRows = Math.max(1, viewportRows - 1);
+    this.#lastViewportRows = bodyRows;
 
     const { rows: fileRows, cursorRows } = this.#current;
 
@@ -122,12 +131,12 @@ export class WalkthroughViewer implements Component {
     this.#scrollOffset = scrollIntoView(
       this.#scrollOffset,
       cursorEntry?.rowIndex ?? 0,
-      viewportRows,
+      bodyRows,
     );
 
     const { maxOld, maxNew } = gutterWidths(fileRows);
 
-    const end = Math.min(fileRows.length, this.#scrollOffset + viewportRows);
+    const end = Math.min(fileRows.length, this.#scrollOffset + bodyRows);
     const cursorRow = cursorEntry?.row;
     for (const row of fileRows.slice(this.#scrollOffset, end)) {
       rows.push(this.#renderRow(row, row === cursorRow, width, maxOld, maxNew));
@@ -157,6 +166,17 @@ export class WalkthroughViewer implements Component {
     return rows;
   }
 
+  #renderFileHeader(file: DiffFile, width: number): string {
+    const theme = this.#theme;
+    const pos = theme.fg(
+      "dim",
+      `[${this.#fileIndex + 1}/${this.#files.length}] `,
+    );
+    const status = theme.fg("muted", ` (${file.status})`);
+    const text = pos + theme.bold(file.path) + status;
+    return visibleWidth(text) > width ? truncateToWidth(text, width) : text;
+  }
+
   #renderRow(
     row: Row,
     isCursor: boolean,
@@ -166,15 +186,7 @@ export class WalkthroughViewer implements Component {
   ): string {
     const theme = this.#theme;
     let text: string;
-    if (row.kind === "fileHeader") {
-      const file = row.file;
-      const pos = theme.fg(
-        "dim",
-        `[${this.#fileIndex + 1}/${this.#files.length}] `,
-      );
-      const status = theme.fg("muted", ` (${file.status})`);
-      text = pos + theme.bold(file.path) + status;
-    } else if (row.kind === "placeholder") {
+    if (row.kind === "placeholder") {
       text = theme.fg("muted", "binary file — not displayed");
     } else if (row.kind === "hunkHeader") {
       text = theme.fg("dim", row.header);

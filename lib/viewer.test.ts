@@ -153,22 +153,22 @@ describe("file switch", () => {
 });
 
 describe("page keys", () => {
-  test("ctrl+f advances one viewport (render(80) sets 38 rows), with a render request", () => {
+  test("ctrl+f advances one viewport of body rows (render(80) sets 37), with a render request", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
     const files = [textFile("big.ts", [{ header: "@@", lines }])];
     const { tui, renderCount } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
-    viewer.render(80); // viewportRows = 40 - 2 = 38
+    viewer.render(80); // viewportRows = 38 → bodyRows = 37
     const before = renderCount();
-    viewer.handleInput("\x06"); // ctrl+f: +38 rows
+    viewer.handleInput("\x06"); // ctrl+f: +37 rows
 
     expect(renderCount()).toBe(before + 1);
 
     annotate(viewer, "pd");
 
-    expect(lines[38]!.comment).toBe("pd");
-    expect(lines[38]!.newLine).toBe(39);
+    expect(lines[37]!.comment).toBe("pd");
+    expect(lines[37]!.newLine).toBe(38);
   });
 
   test("ctrl+b goes back one viewport", () => {
@@ -179,14 +179,14 @@ describe("page keys", () => {
 
     viewer.render(80);
     viewer.handleInput("\x06");
-    viewer.handleInput("\x02"); // ctrl+b: -38 rows
+    viewer.handleInput("\x02"); // ctrl+b: -37 rows
 
     annotate(viewer, "pu");
 
     expect(lines[0]!.comment).toBe("pu");
   });
 
-  test("ctrl+d advances half a viewport (half of 38 = 19), with a render request, and not done", () => {
+  test("ctrl+d advances half a viewport (half of 37 = 18), with a render request, and not done", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
     const files = [textFile("big.ts", [{ header: "@@", lines }])];
     const { tui, renderCount } = fakeTui(40);
@@ -195,7 +195,7 @@ describe("page keys", () => {
       doneCalls++;
     });
 
-    viewer.render(80); // viewportRows = 40 - 2 = 38, half = 19
+    viewer.render(80); // viewportRows = 38 → bodyRows = 37, half = 18
     const before = renderCount();
     viewer.handleInput("\x04"); // ctrl+d
 
@@ -204,17 +204,18 @@ describe("page keys", () => {
 
     annotate(viewer, "cd");
 
-    expect(lines[19]!.comment).toBe("cd");
-    expect(lines[19]!.newLine).toBe(20);
+    expect(lines[18]!.comment).toBe("cd");
+    expect(lines[18]!.newLine).toBe(19);
   });
 
-  test("ctrl+d twice scrolls the content: line38 in, line0 out", () => {
+  test("three ctrl+d scroll the content: line38 in, line0 out", () => {
     const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
     const files = [textFile("big.ts", [{ header: "@@", lines }])];
     const { tui } = fakeTui(40);
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
     viewer.render(80);
+    viewer.handleInput("\x04");
     viewer.handleInput("\x04");
     viewer.handleInput("\x04");
 
@@ -442,6 +443,20 @@ describe("render shape", () => {
 
     viewer.handleInput("a"); // no cursor rows on a binary screen
     expect(viewer.render(80).at(-2)).not.toContain("annotate");
+  });
+
+  test("file header stays pinned after scrolling", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
+    const files = [textFile("big.ts", [{ header: "@@", lines }])];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80);
+    for (let i = 0; i < 3; i++) viewer.handleInput("\x04"); // clamp to last line
+    const out = viewer.render(80);
+
+    expect(out[1]).toContain("[1/1] big.ts (modified)");
+    expect(out.some((line) => line.includes("line0"))).toBe(false);
   });
 });
 

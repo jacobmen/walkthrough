@@ -11,7 +11,7 @@ import {
 import { add, binaryFile, ctx, del, textFile } from "./test-fixtures";
 
 describe("buildRows", () => {
-  test("text file with two hunks → header, hunk headers, lines in order", () => {
+  test("text file with two hunks → hunk headers, lines in order", () => {
     const l1 = ctx("a", 1, 1);
     const l2 = add("b", 2);
     const l3 = del("c", 3);
@@ -23,7 +23,6 @@ describe("buildRows", () => {
     const { rows, cursorRows } = buildRows(file);
 
     expect(rows).toEqual([
-      { kind: "fileHeader", file },
       { kind: "hunkHeader", header: "@@ -1,1 +1,1 @@" },
       { kind: "diffLine", file, line: l1 },
       { kind: "hunkHeader", header: "@@ -3,1 +3,1 @@" },
@@ -31,20 +30,17 @@ describe("buildRows", () => {
       { kind: "diffLine", file, line: l3 },
     ]);
     expect(cursorRows).toEqual([
-      { rowIndex: 2, row: { kind: "diffLine", file, line: l1 } },
-      { rowIndex: 4, row: { kind: "diffLine", file, line: l2 } },
-      { rowIndex: 5, row: { kind: "diffLine", file, line: l3 } },
+      { rowIndex: 1, row: { kind: "diffLine", file, line: l1 } },
+      { rowIndex: 3, row: { kind: "diffLine", file, line: l2 } },
+      { rowIndex: 4, row: { kind: "diffLine", file, line: l3 } },
     ]);
   });
 
-  test("binary file → header + placeholder, no cursor rows", () => {
+  test("binary file → placeholder only, no cursor rows", () => {
     const file = binaryFile("img.png");
     const { rows, cursorRows } = buildRows(file);
 
-    expect(rows).toEqual([
-      { kind: "fileHeader", file },
-      { kind: "placeholder" },
-    ]);
+    expect(rows).toEqual([{ kind: "placeholder" }]);
     expect(cursorRows).toEqual([]);
   });
 
@@ -54,20 +50,16 @@ describe("buildRows", () => {
     const text = textFile("f.ts", [{ header: "@@", lines: [l1] }]);
 
     const binaryOut = buildRows(binary);
-    expect(binaryOut.rows).toEqual([
-      { kind: "fileHeader", file: binary },
-      { kind: "placeholder" },
-    ]);
+    expect(binaryOut.rows).toEqual([{ kind: "placeholder" }]);
     expect(binaryOut.cursorRows).toEqual([]);
 
     const textOut = buildRows(text);
     expect(textOut.rows).toEqual([
-      { kind: "fileHeader", file: text },
       { kind: "hunkHeader", header: "@@" },
       { kind: "diffLine", file: text, line: l1 },
     ]);
     expect(textOut.cursorRows).toEqual([
-      { rowIndex: 2, row: { kind: "diffLine", file: text, line: l1 } },
+      { rowIndex: 1, row: { kind: "diffLine", file: text, line: l1 } },
     ]);
   });
 });
