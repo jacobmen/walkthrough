@@ -52,6 +52,8 @@ type KeyPrefix = { kind: "prefix"; children: Keymap };
 type KeyBinding = KeyCommand | KeyPrefix;
 type Keymap = { [K in KeyId]?: KeyBinding };
 
+type PendingChord = { keys: KeyId[]; keymap: Keymap };
+
 function command(run: () => void): KeyBinding {
   return { kind: "command", run };
 }
@@ -68,7 +70,7 @@ export class WalkthroughViewer implements Component {
   #confirmQuit = false;
   #lastViewportRows = 20;
   #keymap: Keymap;
-  #pendingKeymap: Keymap;
+  #pendingChord: PendingChord;
 
   constructor(
     files: NonEmpty<DiffFile>,
@@ -122,7 +124,7 @@ export class WalkthroughViewer implements Component {
         this.#moveCursorTo(this.#current.cursorRows.length - 1),
       ),
     };
-    this.#pendingKeymap = this.#keymap;
+    this.#pendingChord = { keys: [], keymap: this.#keymap };
   }
 
   get #current(): Entry {
@@ -151,24 +153,33 @@ export class WalkthroughViewer implements Component {
       return;
     }
 
-    const node = this.#lookup(data);
-    if (node === undefined) {
-      this.#pendingKeymap = this.#keymap; // unknown key: reset and drop
+    const hadPending = this.#pendingChord.keys.length > 0;
+    const match = this.#match(data);
+    if (match === undefined) {
+      this.#pendingChord = { keys: [], keymap: this.#keymap }; // unknown key: reset and drop
+      if (hadPending) this.#tui.requestRender();
       return;
     }
 
-    if (node.kind === "prefix") {
-      this.#pendingKeymap = node.children; // wait for the rest of the sequence
+    if (match.node.kind === "prefix") {
+      this.#pendingChord = {
+        keys: [...this.#pendingChord.keys, match.key],
+        keymap: match.node.children,
+      }; // wait for the rest of the sequence
+      this.#tui.requestRender();
       return;
     }
 
-    this.#pendingKeymap = this.#keymap;
-    node.run();
+    this.#pendingChord = { keys: [], keymap: this.#keymap };
+    match.node.run();
+    if (hadPending) this.#tui.requestRender();
   }
 
-  #lookup(data: string): KeyBinding | undefined {
-    for (const [keyId, node] of Object.entries(this.#pendingKeymap)) {
-      if (matchesKey(data, keyId as KeyId)) return node;
+  #match(data: string): { key: KeyId; node: KeyBinding } | undefined {
+    const keymap = this.#pendingChord.keymap;
+    for (const key of Object.keys(keymap) as KeyId[]) {
+      const node = keymap[key];
+      if (node !== undefined && matchesKey(data, key)) return { key, node };
     }
     return undefined;
   }
@@ -178,12 +189,7 @@ export class WalkthroughViewer implements Component {
     const commentCount = countComments(this.#files);
 
     const rows: string[] = [];
-    rows.push(
-      truncateToWidth(
-        `${theme.fg("dim", "walkthrough · unstaged changes · ")}${theme.fg("accent", `${commentCount} comments`)}`,
-        width,
-      ),
-    );
+    rows.push(this.#renderTitle(commentCount, width));
     rows.push(this.#renderFileHeader(this.#current, width));
 
     const annotating = this.#annotating !== null;
@@ -235,6 +241,24 @@ export class WalkthroughViewer implements Component {
           ),
     );
     return rows;
+  }
+
+  #renderTitle(commentCount: number, width: number): string {
+    const theme = this.#theme;
+    const title = `${theme.fg("dim", "walkthrough · unstaged changes · ")}${theme.fg("accent", `${commentCount} comments`)}`;
+
+    const keys = this.#pendingChord.keys.join("");
+    if (keys === "") return truncateToWidth(title, width);
+
+    const indicator = theme.fg("accent", theme.bold(keys));
+    const body = truncateToWidth(
+      title,
+      Math.max(0, width - visibleWidth(indicator)),
+    );
+    const gap = " ".repeat(
+      Math.max(0, width - visibleWidth(body) - visibleWidth(indicator)),
+    );
+    return body + gap + indicator;
   }
 
   #renderFileHeader(entry: Entry, width: number): string {

@@ -529,13 +529,16 @@ describe("gg and G jumps", () => {
     expect(v.lines[0]!.comment).toBe("top");
   });
 
-  test("lone g does nothing and requests no render", () => {
+  test("lone g shows the pending indicator and requests a render", () => {
     const v = makeViewer();
     const before = v.renderCount();
 
     v.viewer.handleInput("g");
 
-    expect(v.renderCount()).toBe(before);
+    expect(v.renderCount()).toBe(before + 1);
+    const out = v.viewer.render(80);
+    expect(out[0]!.endsWith("g")).toBe(true);
+    expect(out[0]!.length).toBe(80);
 
     v.viewer.handleInput("x"); // dropped, resets pending; cursor never moved
     annotate(v.viewer, "c1"); // cursor never moved off the first line
@@ -592,9 +595,48 @@ describe("gg and G jumps", () => {
     const before = renderCount();
 
     viewer.handleInput("G");
-    viewer.handleInput("g");
+    expect(renderCount()).toBe(before); // root command: nothing new to draw
 
-    expect(renderCount()).toBe(before);
+    viewer.handleInput("g");
+    expect(renderCount()).toBe(before + 1); // pending indicator appears
+
+    viewer.handleInput("g"); // resolves to a no-op jump; only the indicator clears
+    expect(renderCount()).toBe(before + 2);
+  });
+});
+
+describe("pending key indicator", () => {
+  test("pending keys render right-aligned on the title row", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("g");
+    const out = v.viewer.render(80);
+
+    expect(out[0]!.endsWith("g")).toBe(true);
+    expect(out[0]!.length).toBe(80);
+    expect(out[1]).toContain("[1/2] a.ts (modified)"); // rest of the layout unchanged
+  });
+
+  test("completing the chord clears the indicator", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("g");
+    v.viewer.handleInput("g"); // resolves: jump to the first line
+
+    expect(v.viewer.render(80)[0]).toBe(
+      "walkthrough · unstaged changes · 0 comments",
+    );
+  });
+
+  test("an unbound key clears the indicator", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("g");
+    v.viewer.handleInput("x"); // dropped, and the indicator goes with it
+
+    expect(v.viewer.render(80)[0]).toBe(
+      "walkthrough · unstaged changes · 0 comments",
+    );
   });
 });
 
