@@ -141,11 +141,11 @@ describe("file switch", () => {
     expect(v.viewer.render(80)[1]).toContain("[1/2] a.ts");
   });
 
-  test("switching files resets the cursor to the new file's first line", () => {
+  test("first visit to a file starts at its first line", () => {
     const v = makeViewer();
 
     v.viewer.handleInput("j"); // a.ts: beta (index 1)
-    v.viewer.handleInput("n"); // b.ts, cursor resets to gamma (index 0)
+    v.viewer.handleInput("n"); // b.ts: never visited, starts at gamma (index 0)
     annotate(v.viewer, "g");
 
     expect(v.lines[2]!.comment).toBe("g");
@@ -161,12 +161,113 @@ describe("file switch", () => {
     const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
 
     viewer.render(80);
+    viewer.handleInput("j"); // move within the single file
     const before = renderCount();
     viewer.handleInput("n");
     viewer.handleInput("p");
 
     expect(renderCount()).toBe(before);
+    annotate(viewer, "c");
+    expect(lines[1]!.comment).toBe("c"); // cursor unaffected by the no-op switches
     expect(viewer.render(80)[1]).toContain("[1/1] only.ts");
+  });
+});
+
+describe("cursor position restore across file switches", () => {
+  test("returning to a file restores its cursor position", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("j"); // a.ts: beta
+    v.viewer.handleInput("n"); // b.ts: gamma (first visit)
+    annotate(v.viewer, "b");
+    v.viewer.handleInput("p"); // back to a.ts
+    annotate(v.viewer, "a");
+
+    expect(v.lines[1]!.comment).toBe("a"); // beta, not alpha
+    expect(v.lines[2]!.comment).toBe("b"); // gamma, untouched
+  });
+
+  test("position survives several intervening switches and wraps back around", () => {
+    const lines = [
+      add("alpha", 1),
+      add("beta", 2),
+      add("gamma", 1),
+      add("delta", 2),
+      add("epsilon", 1),
+      add("zeta", 2),
+    ];
+    const files: NonEmpty<DiffFile> = [
+      textFile("a.ts", [
+        { header: "@@ -1,2 +1,2 @@", lines: lines.slice(0, 2) },
+      ]),
+      textFile("b.ts", [
+        { header: "@@ -1,2 +1,2 @@", lines: lines.slice(2, 4) },
+      ]),
+      textFile("c.ts", [{ header: "@@ -1,2 +1,2 @@", lines: lines.slice(4) }]),
+    ];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.handleInput("j"); // a.ts: beta
+    viewer.handleInput("n"); // b.ts: gamma (first visit)
+    annotate(viewer, "b");
+    viewer.handleInput("n"); // c.ts: epsilon (first visit)
+    annotate(viewer, "c");
+    viewer.handleInput("n"); // wraps back to a.ts
+    annotate(viewer, "a");
+
+    expect(lines[1]!.comment).toBe("a"); // beta restored
+    expect(lines[2]!.comment).toBe("b");
+    expect(lines[4]!.comment).toBe("c");
+  });
+
+  test("returning to a scrolled file restores the exact visible window", () => {
+    const lines = Array.from({ length: 50 }, (_, i) => add(`line${i}`, i + 1));
+    const files: NonEmpty<DiffFile> = [
+      textFile("big.ts", [{ header: "@@", lines }]),
+      textFile("small.ts", [{ header: "@@", lines: [add("small", 1)] }]),
+    ];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80); // bodyRows = 37
+    for (let i = 0; i < 40; i++) viewer.handleInput("j"); // cursor to row 40
+    viewer.render(80); // scrollIntoView moves the offset to 4
+    viewer.handleInput("k"); // cursor 39; offset stays 4
+    const before = viewer.render(80);
+
+    viewer.handleInput("n"); // small.ts: first visit, cursor 0
+    viewer.render(80);
+    viewer.handleInput("p"); // back to big.ts
+    const after = viewer.render(80);
+
+    expect(after[1]).toContain("[1/2] big.ts");
+    expect(after.slice(2, 39)).toEqual(before.slice(2, 39));
+    expect(after[2]).toContain("line4"); // offset 4 kept, not recomputed from 0
+    expect(after[38]).toContain("line40");
+  });
+
+  test("binary files keep cursor 0 and do not crash when switching", () => {
+    const lines = [add("alpha", 1), add("beta", 2)];
+    const files: NonEmpty<DiffFile> = [
+      textFile("a.ts", [{ header: "@@", lines }]),
+      binaryFile("logo.png"),
+    ];
+    const { tui } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.render(80);
+    viewer.handleInput("j"); // a.ts: beta
+    viewer.handleInput("n"); // logo.png: no cursor rows, cursor stays 0
+    viewer.handleInput("j"); // no-op on binary
+
+    const binary = viewer.render(80);
+    expect(binary[1]).toContain("[2/2] logo.png");
+    expect(binary[2]).toContain("binary file — not displayed");
+
+    viewer.handleInput("p"); // back to a.ts
+    annotate(viewer, "a");
+    expect(lines[1]!.comment).toBe("a"); // beta restored
   });
 });
 

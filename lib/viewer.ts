@@ -34,6 +34,8 @@ type Entry = {
   index: number;
   rows: Row[];
   cursorRows: CursorRow[];
+  cursor: number;
+  scrollOffset: number;
 };
 
 function rotate(entries: NonEmpty<Entry>, direction: 1 | -1): NonEmpty<Entry> {
@@ -62,8 +64,6 @@ export class WalkthroughViewer implements Component {
   readonly #theme: Theme;
   readonly #done: (result: null) => void;
   #entries: NonEmpty<Entry>;
-  #cursor = 0;
-  #scrollOffset = 0;
   #annotating: { input: Input } | null = null;
   #confirmQuit = false;
   #lastViewportRows = 20;
@@ -82,10 +82,18 @@ export class WalkthroughViewer implements Component {
 
     const [first, ...rest] = files;
     this.#entries = [
-      { file: first, index: 0, ...buildRows(first) },
+      {
+        file: first,
+        index: 0,
+        cursor: 0,
+        scrollOffset: 0,
+        ...buildRows(first),
+      },
       ...rest.map((file, index) => ({
         file,
         index: index + 1,
+        cursor: 0,
+        scrollOffset: 0,
         ...buildRows(file),
       })),
     ];
@@ -187,20 +195,21 @@ export class WalkthroughViewer implements Component {
     const bodyRows = Math.max(1, viewportRows - 1);
     this.#lastViewportRows = bodyRows;
 
-    const { rows: fileRows, cursorRows } = this.#current;
+    const entry = this.#current;
+    const { rows: fileRows, cursorRows } = entry;
 
-    const cursorEntry = cursorRows[this.#cursor];
-    this.#scrollOffset = scrollIntoView(
-      this.#scrollOffset,
+    const cursorEntry = cursorRows[entry.cursor];
+    entry.scrollOffset = scrollIntoView(
+      entry.scrollOffset,
       cursorEntry?.rowIndex ?? 0,
       bodyRows,
     );
 
     const { maxOld, maxNew } = gutterWidths(fileRows);
 
-    const end = Math.min(fileRows.length, this.#scrollOffset + bodyRows);
+    const end = Math.min(fileRows.length, entry.scrollOffset + bodyRows);
     const cursorRow = cursorEntry?.row;
-    for (const row of fileRows.slice(this.#scrollOffset, end)) {
+    for (const row of fileRows.slice(entry.scrollOffset, end)) {
       rows.push(this.#renderRow(row, row === cursorRow, width, maxOld, maxNew));
     }
 
@@ -284,31 +293,26 @@ export class WalkthroughViewer implements Component {
   }
 
   #moveCursor(delta: number): void {
-    const next = moveCursor(
-      this.#cursor,
-      delta,
-      this.#current.cursorRows.length,
-    );
-    if (next !== this.#cursor) {
-      this.#cursor = next;
+    const entry = this.#current;
+    const next = moveCursor(entry.cursor, delta, entry.cursorRows.length);
+    if (next !== entry.cursor) {
+      entry.cursor = next;
       this.#tui.requestRender();
     }
   }
 
   #moveCursorTo(row: number): void {
-    this.#moveCursor(row - this.#cursor);
+    this.#moveCursor(row - this.#current.cursor);
   }
 
   #switchFile(direction: 1 | -1): void {
     if (this.#entries.length === 1) return; // single file: nothing to switch
     this.#entries = rotate(this.#entries, direction);
-    this.#cursor = 0;
-    this.#scrollOffset = 0;
     this.#tui.requestRender();
   }
 
   #startAnnotate(): void {
-    const entry = this.#current.cursorRows[this.#cursor];
+    const entry = this.#current.cursorRows[this.#current.cursor];
     if (entry === undefined) return;
     const line = entry.row.line;
 
