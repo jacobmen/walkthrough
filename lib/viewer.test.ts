@@ -406,6 +406,97 @@ describe("ignored keys", () => {
   });
 });
 
+describe("gg and G jumps", () => {
+  test("G jumps to the last line of the current file", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("G");
+    annotate(v.viewer, "last");
+
+    expect(v.lines[1]!.comment).toBe("last");
+    expect(v.lines[3]!.comment).toBeUndefined();
+  });
+
+  test("gg jumps to the first line", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("j");
+    v.viewer.handleInput("g");
+    v.viewer.handleInput("g");
+    annotate(v.viewer, "top");
+
+    expect(v.lines[0]!.comment).toBe("top");
+  });
+
+  test("lone g does nothing and requests no render", () => {
+    const v = makeViewer();
+    const before = v.renderCount();
+
+    v.viewer.handleInput("g");
+
+    expect(v.renderCount()).toBe(before);
+
+    v.viewer.handleInput("x"); // dropped, resets pending; cursor never moved
+    annotate(v.viewer, "c1"); // cursor never moved off the first line
+    expect(v.lines[0]!.comment).toBe("c1");
+  });
+
+  test("a key after g that is not g is dropped", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("j"); // beta
+    v.viewer.handleInput("g");
+    v.viewer.handleInput("a"); // dropped: pending reset, no annotate prompt
+
+    expect(v.viewer.render(80).at(-2)).not.toContain("annotate L");
+
+    annotate(v.viewer, "c"); // a works again after the reset
+    expect(v.lines[1]!.comment).toBe("c");
+  });
+
+  test("pending g resets after a completed sequence", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("j");
+    v.viewer.handleInput("g");
+    v.viewer.handleInput("g"); // alpha
+    v.viewer.handleInput("j"); // beta
+    annotate(v.viewer, "c");
+
+    expect(v.lines[1]!.comment).toBe("c");
+  });
+
+  test("escape while pending is dropped; next escape quits", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("g");
+    v.viewer.handleInput("\x1b"); // dropped: pending reset, no quit
+
+    expect(v.doneCalls()).toBe(0);
+
+    v.viewer.handleInput("\x1b"); // root escape → quit (no comments)
+
+    expect(v.doneCalls()).toBe(1);
+  });
+
+  test("G and gg are no-ops on a binary file", () => {
+    const files: NonEmpty<DiffFile> = [
+      textFile("a.ts", [{ header: "@@", lines: [add("alpha", 1)] }]),
+      binaryFile("logo.png"),
+    ];
+    const { tui, renderCount } = fakeTui(40);
+    const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {});
+
+    viewer.handleInput("n");
+    const before = renderCount();
+
+    viewer.handleInput("G");
+    viewer.handleInput("g");
+
+    expect(renderCount()).toBe(before);
+  });
+});
+
 describe("render shape", () => {
   test("renders only the current file's rows", () => {
     const v = makeViewer();
@@ -419,7 +510,7 @@ describe("render shape", () => {
     expect(out[4]).toContain("beta");
     expect(out.some((line) => line.includes("b.ts"))).toBe(false);
     expect(out.at(-1)).toBe(
-      "j/k move · ^f/^b page · ^d/^u half · a annotate · p/n file · d done · q quit",
+      "j/k move·^f/^b page·^d/^u half·gg/G top/end·a annotate·p/n file·d done·q quit",
     );
   });
 

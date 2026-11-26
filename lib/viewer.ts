@@ -2,6 +2,7 @@ import {
   applyBackgroundToLine,
   type Component,
   Input,
+  type KeyId,
   matchesKey,
   singleLine,
   type Theme,
@@ -44,6 +45,18 @@ function rotate(entries: NonEmpty<Entry>, direction: 1 | -1): NonEmpty<Entry> {
   return [head, ...tail];
 }
 
+type KeyCommand = { kind: "command"; run: () => void };
+type KeyPrefix = { kind: "prefix"; children: Keymap };
+type KeyBinding = KeyCommand | KeyPrefix;
+type Keymap = { [K in KeyId]?: KeyBinding };
+
+function command(run: () => void): KeyBinding {
+  return { kind: "command", run };
+}
+function prefix(children: Keymap): KeyBinding {
+  return { kind: "prefix", children };
+}
+
 export class WalkthroughViewer implements Component {
   readonly #tui: TUI;
   readonly #theme: Theme;
@@ -54,6 +67,8 @@ export class WalkthroughViewer implements Component {
   #annotating: { input: Input } | null = null;
   #confirmQuit = false;
   #lastViewportRows = 20;
+  #keymap: Keymap;
+  #pendingKeymap: Keymap;
 
   constructor(
     files: NonEmpty<DiffFile>,
@@ -64,6 +79,7 @@ export class WalkthroughViewer implements Component {
     this.#tui = tui;
     this.#theme = theme;
     this.#done = done;
+
     const [first, ...rest] = files;
     this.#entries = [
       { file: first, index: 0, ...buildRows(first) },
@@ -73,6 +89,32 @@ export class WalkthroughViewer implements Component {
         ...buildRows(file),
       })),
     ];
+
+    this.#keymap = {
+      j: command(() => this.#moveCursor(1)),
+      down: command(() => this.#moveCursor(1)),
+      k: command(() => this.#moveCursor(-1)),
+      up: command(() => this.#moveCursor(-1)),
+      n: command(() => this.#switchFile(1)),
+      p: command(() => this.#switchFile(-1)),
+      "ctrl+f": command(() => this.#moveCursor(this.#lastViewportRows)),
+      "ctrl+b": command(() => this.#moveCursor(-this.#lastViewportRows)),
+      "ctrl+d": command(() =>
+        this.#moveCursor(Math.floor(this.#lastViewportRows / 2)),
+      ),
+      "ctrl+u": command(() =>
+        this.#moveCursor(-Math.floor(this.#lastViewportRows / 2)),
+      ),
+      a: command(() => this.#startAnnotate()),
+      d: command(() => this.#done(null)),
+      q: command(() => this.#quit()),
+      escape: command(() => this.#quit()),
+      g: prefix({ g: command(() => this.#moveCursorTo(0)) }),
+      "shift+g": command(() =>
+        this.#moveCursorTo(this.#current.cursorRows.length - 1),
+      ),
+    };
+    this.#pendingKeymap = this.#keymap;
   }
 
   get #current(): Entry {
@@ -89,6 +131,7 @@ export class WalkthroughViewer implements Component {
       this.#tui.requestRender();
       return;
     }
+
     if (this.#confirmQuit) {
       if (matchesKey(data, "y")) {
         clearComments(this.#files);
@@ -99,30 +142,27 @@ export class WalkthroughViewer implements Component {
       }
       return;
     }
-    if (matchesKey(data, "j") || matchesKey(data, "down")) {
-      this.#moveCursor(1);
-    } else if (matchesKey(data, "k") || matchesKey(data, "up")) {
-      this.#moveCursor(-1);
-    } else if (matchesKey(data, "n")) {
-      this.#switchFile(1);
-    } else if (matchesKey(data, "p")) {
-      this.#switchFile(-1);
-    } else if (matchesKey(data, "ctrl+f")) {
-      this.#moveCursor(this.#lastViewportRows);
-    } else if (matchesKey(data, "ctrl+b")) {
-      this.#moveCursor(-this.#lastViewportRows);
-    } else if (matchesKey(data, "ctrl+d")) {
-      this.#moveCursor(Math.floor(this.#lastViewportRows / 2));
-    } else if (matchesKey(data, "ctrl+u")) {
-      this.#moveCursor(-Math.floor(this.#lastViewportRows / 2));
-    } else if (matchesKey(data, "a")) {
-      this.#startAnnotate();
-    } else if (matchesKey(data, "d")) {
-      this.#done(null);
-    } else if (matchesKey(data, "q") || matchesKey(data, "escape")) {
-      this.#quit();
+
+    const node = this.#lookup(data);
+    if (node === undefined) {
+      this.#pendingKeymap = this.#keymap; // unknown key: reset and drop
+      return;
     }
-    // anything else: ignored
+
+    if (node.kind === "prefix") {
+      this.#pendingKeymap = node.children; // wait for the rest of the sequence
+      return;
+    }
+
+    this.#pendingKeymap = this.#keymap;
+    node.run();
+  }
+
+  #lookup(data: string): KeyBinding | undefined {
+    for (const [keyId, node] of Object.entries(this.#pendingKeymap)) {
+      if (matchesKey(data, keyId as KeyId)) return node;
+    }
+    return undefined;
   }
 
   render(width: number): readonly string[] {
@@ -180,7 +220,7 @@ export class WalkthroughViewer implements Component {
         : truncateToWidth(
             theme.fg(
               "dim",
-              "j/k move · ^f/^b page · ^d/^u half · a annotate · p/n file · d done · q quit",
+              "j/k move·^f/^b page·^d/^u half·gg/G top/end·a annotate·p/n file·d done·q quit",
             ),
             width,
           ),
@@ -253,6 +293,10 @@ export class WalkthroughViewer implements Component {
       this.#cursor = next;
       this.#tui.requestRender();
     }
+  }
+
+  #moveCursorTo(row: number): void {
+    this.#moveCursor(row - this.#cursor);
   }
 
   #switchFile(direction: 1 | -1): void {
