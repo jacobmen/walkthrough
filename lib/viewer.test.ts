@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { visibleWidth } from "@oh-my-pi/pi-tui";
 import type { DiffFile } from "./diff";
+import type { HelpOverlay } from "./help-overlay";
 import { buildPrompt } from "./prompt";
 import { countComments } from "./review-model";
 import {
@@ -24,14 +26,21 @@ function makeViewer() {
     textFile("b.ts", [{ header: "@@ -1,2 +1,2 @@", lines: lines.slice(2) }]),
   ];
 
-  const { tui, renderCount } = fakeTui(40);
+  const { tui, renderCount, overlays } = fakeTui(40);
   let doneCalls = 0;
 
   const viewer = new WalkthroughViewer(files, tui, identityTheme(), () => {
     doneCalls++;
   });
 
-  return { viewer, files, lines, renderCount, doneCalls: () => doneCalls };
+  return {
+    viewer,
+    files,
+    lines,
+    renderCount,
+    overlays,
+    doneCalls: () => doneCalls,
+  };
 }
 
 function annotate(viewer: WalkthroughViewer, text: string): void {
@@ -93,7 +102,7 @@ describe("cursor movement and annotate", () => {
     v.viewer.handleInput("j"); // beta → L2
     v.viewer.handleInput("a");
 
-    expect(v.viewer.render(80).at(-2)).toContain("annotate L2:");
+    expect(v.viewer.render(80).at(-1)).toContain("annotate L2:");
   });
 });
 
@@ -461,7 +470,7 @@ describe("finish and discard", () => {
     v.viewer.handleInput("q");
 
     expect(v.doneCalls()).toBe(0);
-    expect(v.viewer.render(80).at(-1)).toContain("Discard 1 comments? y/n");
+    expect(v.viewer.render(80)[0]).toContain("Discard 1 comments? y/n");
 
     v.viewer.handleInput("y");
 
@@ -478,7 +487,7 @@ describe("finish and discard", () => {
 
     expect(v.doneCalls()).toBe(0);
     expect(countComments(v.files)).toBe(1);
-    expect(v.viewer.render(80).at(-1)).toContain("d done");
+    expect(v.viewer.render(80)[0]).toContain("? for help");
   });
 
   test("escape at the confirmation prompt keeps comments", () => {
@@ -623,9 +632,9 @@ describe("pending key indicator", () => {
     v.viewer.handleInput("g");
     v.viewer.handleInput("g"); // resolves: jump to the first line
 
-    expect(v.viewer.render(80)[0]).toBe(
-      "walkthrough · unstaged changes · 0 comments",
-    );
+    const out = v.viewer.render(80);
+    expect(out[0]).toContain("walkthrough · unstaged changes · 0 comments");
+    expect(out[0]!.endsWith("? for help")).toBe(true);
   });
 
   test("an unbound key clears the indicator", () => {
@@ -634,9 +643,9 @@ describe("pending key indicator", () => {
     v.viewer.handleInput("g");
     v.viewer.handleInput("x"); // dropped, and the indicator goes with it
 
-    expect(v.viewer.render(80)[0]).toBe(
-      "walkthrough · unstaged changes · 0 comments",
-    );
+    const out = v.viewer.render(80);
+    expect(out[0]).toContain("walkthrough · unstaged changes · 0 comments");
+    expect(out[0]!.endsWith("? for help")).toBe(true);
   });
 });
 
@@ -646,15 +655,14 @@ describe("render shape", () => {
 
     const out = v.viewer.render(80);
 
-    expect(out[0]).toBe("walkthrough · unstaged changes · 0 comments");
+    expect(out[0]).toContain("walkthrough · unstaged changes · 0 comments");
+    expect(out[0]!.endsWith("? for help")).toBe(true);
     expect(out[1]).toContain("[1/2] a.ts (modified)");
     expect(out[2]).toBe("@@ -1,2 +1,2 @@");
     expect(out[3]).toContain("alpha");
     expect(out[4]).toContain("beta");
     expect(out.some((line) => line.includes("b.ts"))).toBe(false);
-    expect(out.at(-1)).toBe(
-      "j/k move·^f/^b page·^d/^u half·gg/G top/end·a annotate·p/n file·d done·q quit",
-    );
+    expect(out.some((line) => line.includes("^f"))).toBe(false);
   });
 
   test("after n only the next file's rows render", () => {
@@ -706,7 +714,9 @@ describe("render shape", () => {
     expect(second.some((line) => line.includes("alpha"))).toBe(false);
 
     viewer.handleInput("a"); // no cursor rows on a binary screen
-    expect(viewer.render(80).at(-2)).not.toContain("annotate");
+    expect(viewer.render(80).some((line) => line.includes("annotate L"))).toBe(
+      false,
+    );
   });
 
   test("file header stays pinned after scrolling", () => {
@@ -735,5 +745,76 @@ describe("integration with buildPrompt", () => {
 
     expect(prompt).toContain("a.ts");
     expect(prompt).toContain("fix alpha");
+  });
+});
+
+describe("help overlay", () => {
+  test("? opens the help overlay", () => {
+    const v = makeViewer();
+
+    v.viewer.handleInput("?");
+
+    expect(v.overlays.length).toBe(1);
+    const overlay = v.overlays[0]!.component as HelpOverlay;
+    expect(v.overlays[0]!.options).toEqual({
+      anchor: "center",
+      width: overlay.width,
+      margin: 1,
+    });
+    const text = overlay.render(200).join("\n");
+    expect(text).toContain("j / ↓");
+    expect(text).toContain("ctrl+f");
+    expect(text).toContain("page down");
+    expect(text).toContain("gg");
+    expect(text).toContain("G");
+    expect(text).toContain("q / esc");
+    expect(text).toContain("toggle this help");
+    expect(v.viewer.render(80).some((line) => line.includes("^f"))).toBe(false);
+  });
+
+  test("the window hugs its content", () => {
+    const v = makeViewer();
+    v.viewer.handleInput("?");
+
+    const overlay = v.overlays[0]!.component as HelpOverlay;
+    for (const row of overlay.render(200)) {
+      expect(visibleWidth(row)).toBe(overlay.width);
+    }
+  });
+
+  test("q, ctrl+c, escape, and ? close the help overlay", () => {
+    for (const key of ["q", "\x03", "\x1b", "?"]) {
+      const v = makeViewer();
+      v.viewer.handleInput("?");
+
+      const overlay = v.overlays[0]!.component as HelpOverlay;
+      overlay.handleInput(key);
+
+      expect(v.overlays.length).toBe(0);
+      expect(v.doneCalls()).toBe(0);
+    }
+  });
+
+  test("unhandled keys are ignored while open", () => {
+    const v = makeViewer();
+    v.viewer.handleInput("?");
+
+    (v.overlays[0]!.component as HelpOverlay).handleInput("x");
+
+    expect(v.overlays.length).toBe(1);
+  });
+
+  test("viewer keys work after closing", () => {
+    const v = makeViewer();
+    v.viewer.handleInput("?");
+    (v.overlays[0]!.component as HelpOverlay).handleInput("q");
+
+    expect(v.overlays.length).toBe(0);
+    expect(v.lines[0]!.comment).toBeUndefined();
+
+    v.viewer.handleInput("j");
+    annotate(v.viewer, "moved");
+
+    expect(v.lines[1]!.comment).toBe("moved");
   });
 });

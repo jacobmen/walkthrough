@@ -1,4 +1,11 @@
-import type { Theme, ThemeBg, ThemeColor, TUI } from "@oh-my-pi/pi-tui";
+import type {
+  Component,
+  OverlayOptions,
+  Theme,
+  ThemeBg,
+  ThemeColor,
+  TUI,
+} from "@oh-my-pi/pi-tui";
 import { type DiffFile, type DiffLine } from "./diff";
 
 type ContextLine = Extract<DiffLine, { kind: "context" }>;
@@ -37,18 +44,42 @@ export function identityTheme(): Theme {
   return {
     fg: (_color: ThemeColor, text: string) => text,
     bold: (text: string) => text,
+    bg: (_color: ThemeBg, text: string) => text,
     bgFill: (_color: ThemeBg, text: string) => text,
   } as unknown as Theme;
 }
 
 /** Headless TUI fake: counts requestRender calls, exposes a fixed row count. */
-export function fakeTui(rows: number): { tui: TUI; renderCount(): number } {
+export function fakeTui(rows: number): {
+  tui: TUI;
+  renderCount(): number;
+  overlays: { component: Component; options?: OverlayOptions }[];
+} {
   let renders = 0;
+  const overlays: { component: Component; options?: OverlayOptions }[] = [];
   const tui = {
     requestRender: () => {
       renders++;
     },
     terminal: { rows },
+    showOverlay: (component: Component, options?: OverlayOptions) => {
+      const entry: { component: Component; options?: OverlayOptions } = {
+        component,
+      };
+      if (options !== undefined) entry.options = options;
+      overlays.push(entry);
+      return {
+        hide: () => {
+          const index = overlays.indexOf(entry);
+          if (index !== -1) overlays.splice(index, 1);
+        },
+        setHidden: () => {},
+        isHidden: () => !overlays.includes(entry),
+      };
+    },
+    hideOverlay: () => {
+      overlays.pop();
+    },
   } as unknown as TUI;
-  return { tui, renderCount: () => renders };
+  return { tui, renderCount: () => renders, overlays };
 }

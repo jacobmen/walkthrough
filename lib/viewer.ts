@@ -4,6 +4,7 @@ import {
   Input,
   type KeyId,
   matchesKey,
+  type OverlayHandle,
   singleLine,
   type Theme,
   truncateToWidth,
@@ -11,6 +12,8 @@ import {
   visibleWidth,
 } from "@oh-my-pi/pi-tui";
 import { type DiffFile, diffLineNumber } from "./diff";
+import { type HelpEntry, HelpOverlay } from "./help-overlay";
+import { command, KeyTrie, prefix, type Keymap } from "./keymap";
 import {
   applyComment,
   buildRows,
@@ -47,18 +50,18 @@ function rotate(entries: NonEmpty<Entry>, direction: 1 | -1): NonEmpty<Entry> {
   return [head, ...tail];
 }
 
-type KeyCommand = { kind: "command"; run: () => void };
-type KeyPrefix = { kind: "prefix"; children: Keymap };
-type KeyBinding = KeyCommand | KeyPrefix;
-type Keymap = { [K in KeyId]?: KeyBinding };
+type BindingSpec =
+  | { key: KeyId; label: string; description: string; run: () => void }
+  | { key: KeyId; label: string; description: string; children: Keymap };
 
-type PendingChord = { keys: KeyId[]; keymap: Keymap };
-
-function command(run: () => void): KeyBinding {
-  return { kind: "command", run };
-}
-function prefix(children: Keymap): KeyBinding {
-  return { kind: "prefix", children };
+function helpEntries(bindings: readonly BindingSpec[]): HelpEntry[] {
+  const entries: HelpEntry[] = [];
+  for (const binding of bindings) {
+    const last = entries.at(-1);
+    if (last?.label === binding.label) continue;
+    entries.push({ label: binding.label, description: binding.description });
+  }
+  return entries;
 }
 
 export class WalkthroughViewer implements Component {
@@ -69,8 +72,9 @@ export class WalkthroughViewer implements Component {
   #annotating: { input: Input } | null = null;
   #confirmQuit = false;
   #lastViewportRows = 20;
-  #keymap: Keymap;
-  #pendingChord: PendingChord;
+  readonly #bindings: BindingSpec[];
+  readonly #keys: KeyTrie;
+  #helpHandle: OverlayHandle | null = null;
 
   constructor(
     files: NonEmpty<DiffFile>,
@@ -100,31 +104,116 @@ export class WalkthroughViewer implements Component {
       })),
     ];
 
-    this.#keymap = {
-      j: command(() => this.#moveCursor(1)),
-      down: command(() => this.#moveCursor(1)),
-      k: command(() => this.#moveCursor(-1)),
-      up: command(() => this.#moveCursor(-1)),
-      n: command(() => this.#switchFile(1)),
-      p: command(() => this.#switchFile(-1)),
-      "ctrl+f": command(() => this.#moveCursor(this.#lastViewportRows)),
-      "ctrl+b": command(() => this.#moveCursor(-this.#lastViewportRows)),
-      "ctrl+d": command(() =>
-        this.#moveCursor(Math.floor(this.#lastViewportRows / 2)),
-      ),
-      "ctrl+u": command(() =>
-        this.#moveCursor(-Math.floor(this.#lastViewportRows / 2)),
-      ),
-      a: command(() => this.#startAnnotate()),
-      d: command(() => this.#done(null)),
-      q: command(() => this.#quit()),
-      escape: command(() => this.#quit()),
-      g: prefix({ g: command(() => this.#moveCursorTo(0)) }),
-      "shift+g": command(() =>
-        this.#moveCursorTo(this.#current.cursorRows.length - 1),
-      ),
-    };
-    this.#pendingChord = { keys: [], keymap: this.#keymap };
+    this.#bindings = [
+      {
+        key: "j",
+        label: "j / ↓",
+        description: "move cursor down",
+        run: () => this.#moveCursor(1),
+      },
+      {
+        key: "down",
+        label: "j / ↓",
+        description: "move cursor down",
+        run: () => this.#moveCursor(1),
+      },
+      {
+        key: "k",
+        label: "k / ↑",
+        description: "move cursor up",
+        run: () => this.#moveCursor(-1),
+      },
+      {
+        key: "up",
+        label: "k / ↑",
+        description: "move cursor up",
+        run: () => this.#moveCursor(-1),
+      },
+      {
+        key: "ctrl+f",
+        label: "ctrl+f",
+        description: "page down",
+        run: () => this.#moveCursor(this.#lastViewportRows),
+      },
+      {
+        key: "ctrl+b",
+        label: "ctrl+b",
+        description: "page up",
+        run: () => this.#moveCursor(-this.#lastViewportRows),
+      },
+      {
+        key: "ctrl+d",
+        label: "ctrl+d",
+        description: "half page down",
+        run: () => this.#moveCursor(Math.floor(this.#lastViewportRows / 2)),
+      },
+      {
+        key: "ctrl+u",
+        label: "ctrl+u",
+        description: "half page up",
+        run: () => this.#moveCursor(-Math.floor(this.#lastViewportRows / 2)),
+      },
+      {
+        key: "g",
+        label: "gg",
+        description: "jump to first line",
+        children: { g: command(() => this.#moveCursorTo(0)) },
+      },
+      {
+        key: "shift+g",
+        label: "G",
+        description: "jump to last line",
+        run: () => this.#moveCursorTo(this.#current.cursorRows.length - 1),
+      },
+      {
+        key: "n",
+        label: "n",
+        description: "next file",
+        run: () => this.#switchFile(1),
+      },
+      {
+        key: "p",
+        label: "p",
+        description: "previous file",
+        run: () => this.#switchFile(-1),
+      },
+      {
+        key: "a",
+        label: "a",
+        description: "annotate the cursor line",
+        run: () => this.#startAnnotate(),
+      },
+      {
+        key: "d",
+        label: "d",
+        description: "finish and collect comments",
+        run: () => this.#done(null),
+      },
+      {
+        key: "q",
+        label: "q / esc",
+        description: "quit (asks when comments exist)",
+        run: () => this.#quit(),
+      },
+      {
+        key: "escape",
+        label: "q / esc",
+        description: "quit (asks when comments exist)",
+        run: () => this.#quit(),
+      },
+      {
+        key: "?",
+        label: "?",
+        description: "toggle this help",
+        run: () => this.#openHelp(),
+      },
+    ];
+    const keymap: Keymap = {};
+    for (const spec of this.#bindings) {
+      keymap[spec.key] =
+        "children" in spec ? prefix(spec.children) : command(spec.run);
+    }
+    this.#keys = new KeyTrie(keymap, () => this.#tui.requestRender());
   }
 
   get #current(): Entry {
@@ -153,39 +242,10 @@ export class WalkthroughViewer implements Component {
       return;
     }
 
-    const hadPending = this.#pendingChord.keys.length > 0;
-    const match = this.#match(data);
-    if (match === undefined) {
-      this.#pendingChord = { keys: [], keymap: this.#keymap }; // unknown key: reset and drop
-      if (hadPending) this.#tui.requestRender();
-      return;
-    }
-
-    if (match.node.kind === "prefix") {
-      this.#pendingChord = {
-        keys: [...this.#pendingChord.keys, match.key],
-        keymap: match.node.children,
-      }; // wait for the rest of the sequence
-      this.#tui.requestRender();
-      return;
-    }
-
-    this.#pendingChord = { keys: [], keymap: this.#keymap };
-    match.node.run();
-    if (hadPending) this.#tui.requestRender();
-  }
-
-  #match(data: string): { key: KeyId; node: KeyBinding } | undefined {
-    const keymap = this.#pendingChord.keymap;
-    for (const key of Object.keys(keymap) as KeyId[]) {
-      const node = keymap[key];
-      if (node !== undefined && matchesKey(data, key)) return { key, node };
-    }
-    return undefined;
+    this.#keys.handleInput(data);
   }
 
   render(width: number): readonly string[] {
-    const theme = this.#theme;
     const commentCount = countComments(this.#files);
 
     const rows: string[] = [];
@@ -220,26 +280,14 @@ export class WalkthroughViewer implements Component {
     }
 
     // Pad the body so the overlay keeps a stable full-screen height.
-    while (rows.length < viewportRows + 1) rows.push("");
+    while (rows.length < this.#tui.terminal.rows - (annotating ? 1 : 0)) {
+      rows.push("");
+    }
 
     if (this.#annotating) {
       rows.push(this.#annotating.input.render(width)[0] ?? "");
     }
 
-    rows.push(
-      this.#confirmQuit
-        ? truncateToWidth(
-            theme.fg("warning", `Discard ${commentCount} comments? y/n`),
-            width,
-          )
-        : truncateToWidth(
-            theme.fg(
-              "dim",
-              "j/k move·^f/^b page·^d/^u half·gg/G top/end·a annotate·p/n file·d done·q quit",
-            ),
-            width,
-          ),
-    );
     return rows;
   }
 
@@ -247,18 +295,20 @@ export class WalkthroughViewer implements Component {
     const theme = this.#theme;
     const title = `${theme.fg("dim", "walkthrough · unstaged changes · ")}${theme.fg("accent", `${commentCount} comments`)}`;
 
-    const keys = this.#pendingChord.keys.join("");
-    if (keys === "") return truncateToWidth(title, width);
+    const right = this.#confirmQuit
+      ? theme.fg("warning", `Discard ${commentCount} comments? y/n`)
+      : this.#keys.pending !== ""
+        ? theme.fg("accent", theme.bold(this.#keys.pending))
+        : theme.fg("dim", "? for help");
 
-    const indicator = theme.fg("accent", theme.bold(keys));
     const body = truncateToWidth(
       title,
-      Math.max(0, width - visibleWidth(indicator)),
+      Math.max(0, width - visibleWidth(right)),
     );
     const gap = " ".repeat(
-      Math.max(0, width - visibleWidth(body) - visibleWidth(indicator)),
+      Math.max(0, width - visibleWidth(body) - visibleWidth(right)),
     );
-    return body + gap + indicator;
+    return body + gap + right;
   }
 
   #renderFileHeader(entry: Entry, width: number): string {
@@ -364,5 +414,24 @@ export class WalkthroughViewer implements Component {
     } else {
       this.#done(null);
     }
+  }
+
+  #openHelp(): void {
+    if (this.#helpHandle !== null) return;
+    const overlay = new HelpOverlay(
+      this.#theme,
+      helpEntries(this.#bindings),
+      () => this.#closeHelp(),
+    );
+    this.#helpHandle = this.#tui.showOverlay(overlay, {
+      anchor: "center",
+      width: overlay.width,
+      margin: 1,
+    });
+  }
+
+  #closeHelp(): void {
+    this.#helpHandle?.hide();
+    this.#helpHandle = null;
   }
 }
