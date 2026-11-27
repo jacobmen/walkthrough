@@ -1,4 +1,5 @@
 import path from "node:path";
+
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 
 export type FileStatus = "modified" | "new" | "deleted";

@@ -1,4 +1,4 @@
-import { matchesKey, type KeyId } from "@oh-my-pi/pi-tui";
+import { type KeyId, matchesKey } from "@oh-my-pi/pi-tui";
 
 export type KeyCommand = { kind: "command"; run: () => void };
 export type KeyPrefix = { kind: "prefix"; children: Keymap };

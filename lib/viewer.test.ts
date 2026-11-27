@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+
 import { visibleWidth } from "@oh-my-pi/pi-tui";
+
 import type { DiffFile } from "./diff";
 import type { HelpOverlay } from "./help-overlay";
 import { buildPrompt } from "./prompt";

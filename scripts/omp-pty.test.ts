@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+
 import {
-  StreamBuffer,
   lastFrame,
+  StreamBuffer,
   stripAnsi,
   stripAnsiIncremental,
   validateSteps,

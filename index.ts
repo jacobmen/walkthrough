@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+
 import { captureDiff } from "./lib/diff";
 import { buildPrompt } from "./lib/prompt";
 import { nonEmpty, WalkthroughViewer } from "./lib/viewer";

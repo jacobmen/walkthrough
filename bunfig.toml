@@ -3,3 +3,9 @@ exact = true
 
 [test]
 concurrentTestGlob = "**/*.test.ts"
+
+[fmt]
+printWidth = 80
+semi = true
+sortImports = true
+sortPackageJson = true

@@ -11,19 +11,20 @@ import {
   type TUI,
   visibleWidth,
 } from "@oh-my-pi/pi-tui";
+
 import { type DiffFile, diffLineNumber } from "./diff";
 import { type HelpEntry, HelpOverlay } from "./help-overlay";
-import { command, KeyTrie, prefix, type Keymap } from "./keymap";
+import { command, type Keymap, KeyTrie, prefix } from "./keymap";
 import {
   applyComment,
   buildRows,
-  type CursorRow,
   clearComments,
   countComments,
+  type CursorRow,
   gutterWidths,
+  moveCursor,
   type Row,
   scrollIntoView,
-  moveCursor,
 } from "./review-model";
 
 export type NonEmpty<T> = [T, ...T[]];

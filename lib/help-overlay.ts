@@ -1,10 +1,11 @@
 import {
   Box,
   type Component,
-  type Theme,
   Text,
+  type Theme,
   visibleWidth,
 } from "@oh-my-pi/pi-tui";
+
 import { command, KeyTrie } from "./keymap";
 
 export type HelpEntry = { label: string; description: string };

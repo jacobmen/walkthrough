@@ -6,6 +6,7 @@ import type {
   ThemeColor,
   TUI,
 } from "@oh-my-pi/pi-tui";
+
 import { type DiffFile, type DiffLine } from "./diff";
 
 type ContextLine = Extract<DiffLine, { kind: "context" }>;

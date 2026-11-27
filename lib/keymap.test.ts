@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { command, KeyTrie, prefix } from "./keymap";
 
 describe("KeyTrie", () => {
